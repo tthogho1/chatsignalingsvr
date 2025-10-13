@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC Video Chat (WASM)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎥 WebRTC Video Chat</h1>
+      <p class="subtitle">Powered by Rust WebAssembly</p>
+    </header>
+
+    <!-- Connection Panel -->
+    <div id="connection-panel" class="panel connection-panel">
+      <h2>接続設定</h2>
+      <div class="form-group">
+        <label for="server-url">サーバーURL:</label>
+        <input type="text" id="server-url" value="ws://127.0.0.1:8080" placeholder="ws://127.0.0.1:8080">
+      </div>
+      <div class="form-group">
+        <label for="username">ユーザー名:</label>
+        <input type="text" id="username" placeholder="あなたの名前を入力">
+      </div>
+      <button id="connect-btn" class="btn btn-primary">接続</button>
+    </div>
+
+    <!-- Main Content (hidden initially) -->
+    <div id="main-content" class="main-content" style="display: none;">
+      <!-- User Info -->
+      <div class="user-info">
+        <span>接続中: <strong id="username-display"></strong></span>
+        <button id="disconnect-btn" class="btn btn-secondary">切断</button>
+      </div>
+
+      <!-- Video Section -->
+      <div class="video-section">
+        <div class="video-container">
+          <div class="video-wrapper">
+            <video id="local-video" autoplay muted playsinline></video>
+            <div class="video-label">あなた</div>
+            <div class="video-controls">
+              <button id="toggle-camera" class="btn btn-control">📹</button>
+              <button id="toggle-mic" class="btn btn-control">🎤</button>
+            </div>
+          </div>
+          <div class="video-wrapper">
+            <video id="remote-video" autoplay playsinline></video>
+            <div class="video-label">相手</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Call Controls -->
+      <div class="panel call-controls">
+        <h3>通話コントロール</h3>
+        <div class="form-group">
+          <label for="target-user">通話相手:</label>
+          <input type="text" id="target-user" placeholder="相手のユーザー名">
+        </div>
+        <div class="button-group">
+          <button id="start-call" class="btn btn-success">📞 発信</button>
+          <button id="end-call" class="btn btn-danger" disabled>📞 終了</button>
+        </div>
+        <div id="call-status" class="call-status">通話していません</div>
+      </div>
+
+      <!-- Chat Section -->
+      <div class="panel chat-section">
+        <h3>チャット</h3>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-input">
+          <input type="text" id="message-input" placeholder="メッセージを入力..." class="message-input">
+          <button id="send-message" class="btn btn-primary">送信</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>WASM モジュールを読み込み中...</p>
+    </div>
+
+    <!-- Notification Area -->
+    <div id="notifications" class="notifications"></div>
+  </div>
+
+  <!-- WASM Module -->
+  <script type="module">
+    import init, { VideoChat } from './pkg/wasm_client.js';
+
+    async function run() {
+      try {
+        // Initialize WASM module
+        await init();
+
+        // Hide loading indicator
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('connection-panel').style.display = 'block';
+
+        // Create VideoChat instance
+        const videoChat = new VideoChat();
+        await videoChat.initialize();
+
+        // Store globally for access from event handlers
+        window.videoChat = videoChat;
+
+        console.log('WASM VideoChat client initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize WASM module:', error);
+        document.getElementById('loading').innerHTML =
+          '<div class="error">❌ WASM モジュールの読み込みに失敗しました</div>';
+      }
+    }
+
+    run();
+  </script>
+
+  <style>
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #ffffff33;
+      border-top: 4px solid #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 1rem;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    .error {
+      color: #ff6b6b;
+      font-weight: 600;
+      padding: 1rem;
+      background: rgba(255, 107, 107, 0.1);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 107, 107, 0.3);
+    }
+
+    .notifications {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1000;
+      max-width: 300px;
+    }
+
+    .notification {
+      background: rgba(255, 255, 255, 0.95);
+      color: #333;
+      padding: 1rem;
+      margin-bottom: 0.5rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      border-left: 4px solid #4CAF50;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    .notification.warning {
+      border-left-color: #FF9800;
+    }
+
+    .notification.error {
+      border-left-color: #F44336;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .call-status {
+      margin-top: 1rem;
+      padding: 0.5rem;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      text-align: center;
+      font-weight: 500;
+    }
+  </style>
+</body>
+</html>

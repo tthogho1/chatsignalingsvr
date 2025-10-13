@@ -1,0 +1,28 @@
+# General
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+
+# VS Code
+.vscode/
+
+# Rust / Cargo
+target/
+Cargo.lock
+
+# Node / npm (if any demos)
+node_modules/
+
+# WASM build output
+wasm-client/pkg/
+wasm-client/target/
+**/*.wasm
+
+# Misc
+dist/
+build/
+coverage/
+.env

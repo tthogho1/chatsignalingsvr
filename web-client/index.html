@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC Video Chat</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <h1>🎥 WebRTC Video Chat</h1>
+      <div class="user-info">
+        <span id="username-display">未接続</span>
+        <button id="disconnect-btn" class="btn btn-danger" disabled>切断</button>
+      </div>
+    </header>
+
+    <!-- Connection Panel -->
+    <div id="connection-panel" class="panel">
+      <h2>接続設定</h2>
+      <div class="form-group">
+        <label for="server-url">サーバーURL:</label>
+        <input type="text" id="server-url" value="ws://127.0.0.1:8080" placeholder="ws://127.0.0.1:8080">
+      </div>
+      <div class="form-group">
+        <label for="username">ユーザー名:</label>
+        <input type="text" id="username" placeholder="ユーザー名を入力">
+      </div>
+      <button id="connect-btn" class="btn btn-primary">接続</button>
+    </div>
+
+    <!-- Main Content -->
+    <div id="main-content" class="main-content" style="display: none;">
+      <!-- Video Section -->
+      <div class="video-section">
+        <div class="video-container">
+          <div class="video-wrapper">
+            <video id="local-video" autoplay muted></video>
+            <div class="video-label">自分</div>
+            <div class="video-controls">
+              <button id="toggle-camera" class="btn btn-secondary">📹</button>
+              <button id="toggle-mic" class="btn btn-secondary">🎤</button>
+            </div>
+          </div>
+          <div class="video-wrapper">
+            <video id="remote-video" autoplay></video>
+            <div class="video-label" id="remote-label">相手（未接続）</div>
+          </div>
+        </div>
+
+        <!-- Call Controls -->
+        <div class="call-controls">
+          <div class="form-group">
+            <label for="target-user">通話相手:</label>
+            <input type="text" id="target-user" placeholder="相手のユーザー名">
+            <button id="start-call" class="btn btn-success">📞 発信</button>
+            <button id="end-call" class="btn btn-danger" style="display: none;">📞 終了</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat Section -->
+      <div class="chat-section">
+        <div class="chat-header">
+          <h3>💬 チャット</h3>
+          <div class="chat-controls">
+            <button id="clear-chat" class="btn btn-small">クリア</button>
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+          <!-- Messages will be added here -->
+        </div>
+
+        <div class="chat-input">
+          <input type="text" id="message-input" placeholder="メッセージを入力..." maxlength="500">
+          <button id="send-message" class="btn btn-primary">送信</button>
+          <button id="send-broadcast" class="btn btn-secondary">全体送信</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status Panel -->
+    <div class="status-panel">
+      <div class="status-item">
+        <span class="status-label">接続状態:</span>
+        <span id="connection-status" class="status-value">未接続</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">通話状態:</span>
+        <span id="call-status" class="status-value">待機中</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">オンラインユーザー:</span>
+        <span id="online-users" class="status-value">0</span>
+      </div>
+    </div>
+
+    <!-- Incoming Call Modal -->
+    <div id="incoming-call-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>📞 着信</h3>
+        <p><span id="caller-name"></span>さんから着信があります</p>
+        <div class="modal-actions">
+          <button id="accept-call" class="btn btn-success">応答</button>
+          <button id="reject-call" class="btn btn-danger">拒否</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification Area -->
+    <div id="notifications" class="notifications">
+      <!-- Notifications will be added here -->
+    </div>
+  </div>
+
+  <script src="webrtc-client.js"></script>
+</body>
+</html>
