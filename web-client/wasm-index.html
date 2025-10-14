@@ -90,7 +90,7 @@
 
   <!-- WASM Module -->
   <script type="module">
-    import init, { VideoChat } from './pkg/wasm_client.js';
+    import init, { VideoChat } from './pkg/wasm_webrtc_client.js';
 
     async function run() {
       try {
@@ -107,6 +107,83 @@
 
         // Store globally for access from event handlers
         window.videoChat = videoChat;
+
+        // Wire up connect button to call WASM VideoChat.connect
+        const connectBtn = document.getElementById('connect-btn');
+        const serverUrlEl = document.getElementById('server-url');
+        const usernameEl = document.getElementById('username');
+
+        const notify = (message, type = 'info') => {
+          const container = document.getElementById('notifications');
+          if (!container) return;
+          const el = document.createElement('div');
+          el.className = 'notification' + (type !== 'info' ? ` ${type}` : '');
+          el.textContent = message;
+          container.appendChild(el);
+          setTimeout(() => el.remove(), 4000);
+        };
+
+        const doConnect = async () => {
+          const url = serverUrlEl && 'value' in serverUrlEl ? serverUrlEl.value.trim() : '';
+          const username = usernameEl && 'value' in usernameEl ? usernameEl.value.trim() : '';
+
+          if (!url || !username) {
+            notify('サーバーURLとユーザー名を入力してください', 'warning');
+            return;
+          }
+
+          if (connectBtn) {
+            connectBtn.disabled = true;
+            const original = connectBtn.textContent;
+            connectBtn.textContent = '接続中...';
+            try {
+              await videoChat.connect(url, username);
+              // Username 表示（WASM 側でも更新するが、ここでも補完）
+              const nameDisp = document.getElementById('username-display');
+              if (nameDisp) nameDisp.textContent = username;
+              notify('接続に成功しました');
+            } catch (e) {
+              console.error('Connect failed:', e);
+              notify('接続に失敗しました', 'error');
+            } finally {
+              connectBtn.disabled = false;
+              connectBtn.textContent = original;
+            }
+          }
+        };
+
+        if (connectBtn) connectBtn.addEventListener('click', doConnect);
+        if (serverUrlEl) serverUrlEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') doConnect(); });
+        if (usernameEl) usernameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') doConnect(); });
+
+        // Wire up chat send
+        const sendBtn = document.getElementById('send-message');
+        const messageInput = document.getElementById('message-input');
+
+        const doSend = async () => {
+          const text = messageInput && 'value' in messageInput ? messageInput.value.trim() : '';
+          if (!text) {
+            notify('メッセージを入力してください', 'warning');
+            return;
+          }
+          if (!window.videoChat) {
+            notify('未接続です。先に接続してください', 'warning');
+            return;
+          }
+          if (sendBtn) sendBtn.disabled = true;
+          try {
+            await videoChat.send_message(text, null);
+            if (messageInput) messageInput.value = '';
+          } catch (e) {
+            console.error('Send failed:', e);
+            notify('メッセージ送信に失敗しました', 'error');
+          } finally {
+            if (sendBtn) sendBtn.disabled = false;
+          }
+        };
+
+        if (sendBtn) sendBtn.addEventListener('click', doSend);
+        if (messageInput) messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSend(); });
 
         console.log('WASM VideoChat client initialized successfully');
       } catch (error) {

@@ -14,7 +14,7 @@ if %ERRORLEVEL% NEQ 0 (
 REM Build WASM module
 echo 📦 Building WASM package...
 cd wasm-client
-wasm-pack build --target web --out-dir ../web-client/pkg --out-name wasm_client
+wasm-pack build --target web --out-dir ../web-client/pkg --out-name wasm_webrtc_client
 
 if %ERRORLEVEL% EQU 0 (
     cd ..

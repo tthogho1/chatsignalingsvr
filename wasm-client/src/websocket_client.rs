@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{WebSocket, MessageEvent, CloseEvent, ErrorEvent, BinaryType};
 use serde_json;
-use crate::types::*;
+use crate::types::{Message, MessageType};
 use crate::video_chat::VideoChat;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -45,36 +45,43 @@ impl WebSocketClient {
         let onmessage_callback = Closure::wrap(Box::new(move |event: MessageEvent| {
             if let Ok(text) = event.data().dyn_into::<js_sys::JsString>() {
                 let message_str = text.as_string().unwrap_or_default();
-                
-                if let Ok(message) = serde_json::from_str::<ChatMessage>(&message_str) {
-                    let mut video_chat_ref = video_chat_clone.borrow_mut();
-                    
-                    match message.message_type.as_str() {
-                        "broadcast" => {
-                            let _ = video_chat_ref.handle_message(&message.sender, &message.content, true);
-                        }
-                        "direct" => {
-                            let _ = video_chat_ref.handle_message(&message.sender, &message.content, false);
-                        }
-                        "signaling" => {
-                            if let (Some(signaling_type), Some(data)) = (&message.signaling_type, &message.data) {
-                                // Clone only the data needed into locals to avoid moving the Rc
-                                let sender = message.sender.clone();
-                                let signaling_type = signaling_type.clone();
-                                let data = data.clone();
+                match serde_json::from_str::<Message>(&message_str) {
+                    Ok(message) => {
+                        match &message.message_type {
+                            MessageType::TextChat { target_user_id, content } => {
+                                let from = message.sender_id.clone().unwrap_or_else(|| "system".to_string());
+                                let is_broadcast = target_user_id.is_none();
+                                let mut vc = video_chat_clone.borrow_mut();
+                                let _ = vc.handle_message(&from, content, is_broadcast);
+                            }
+                            MessageType::WebRTCSignaling { target_user_id: _, signaling_data } => {
+                                let sender = message.sender_id.clone().unwrap_or_default();
+                                let sig_type_owned = signaling_data.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let data_owned = match sig_type_owned.as_str() {
+                                    "offer" | "answer" => signaling_data
+                                        .get("sdp")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    "ice-candidate" => signaling_data.to_string(),
+                                    _ => String::new(),
+                                };
                                 let video_chat_async = video_chat_clone.clone();
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let mut vc = video_chat_async.borrow_mut();
-                                    let _ = vc.handle_signaling_message(&sender, &signaling_type, &data).await;
+                                    let _ = vc.handle_signaling_message(&sender, &sig_type_owned, &data_owned).await;
                                 });
                             }
-                        }
-                        _ => {
-                            web_sys::console::log_2(&"Unknown message type:".into(), &message.message_type.into());
+                            MessageType::GenericMessage { target_user_id: _, content } => {
+                                let from = message.sender_id.clone().unwrap_or_else(|| "system".to_string());
+                                let mut vc = video_chat_clone.borrow_mut();
+                                let _ = vc.handle_message(&from, content, false);
+                            }
                         }
                     }
-                } else {
-                    web_sys::console::log_2(&"Failed to parse message:".into(), &message_str.into());
+                    Err(_) => {
+                        web_sys::console::log_2(&"Failed to parse message:".into(), &message_str.into());
+                    }
                 }
             }
         }) as Box<dyn FnMut(MessageEvent)>);
@@ -99,45 +106,27 @@ impl WebSocketClient {
     }
 
     pub async fn send_broadcast_message(&self, content: &str) -> Result<(), JsValue> {
-        let message = ChatMessage {
-            message_type: "broadcast".to_string(),
-            content: content.to_string(),
-            sender: self.username.clone(),
-            target: None,
-            signaling_type: None,
-            data: None,
-        };
-
-        self.send_message(&message).await
+        let msg = Message::new_text(Some(self.username.clone()), None, content.to_string());
+        self.send_message(&msg).await
     }
 
     pub async fn send_direct_message(&self, target: &str, content: &str) -> Result<(), JsValue> {
-        let message = ChatMessage {
-            message_type: "direct".to_string(),
-            content: content.to_string(),
-            sender: self.username.clone(),
-            target: Some(target.to_string()),
-            signaling_type: None,
-            data: None,
-        };
-
-        self.send_message(&message).await
+        let msg = Message::new_text(Some(self.username.clone()), Some(target.to_string()), content.to_string());
+        self.send_message(&msg).await
     }
 
     pub async fn send_signaling_message(&self, target: &str, signaling_type: &str, data: &str) -> Result<(), JsValue> {
-        let message = ChatMessage {
-            message_type: "signaling".to_string(),
-            content: "".to_string(),
-            sender: self.username.clone(),
-            target: Some(target.to_string()),
-            signaling_type: Some(signaling_type.to_string()),
-            data: Some(data.to_string()),
+        let signaling_data = match signaling_type {
+            "offer" => serde_json::json!({"type":"offer", "sdp": data}),
+            "answer" => serde_json::json!({"type":"answer", "sdp": data}),
+            "ice-candidate" => serde_json::json!({"type":"ice-candidate", "candidate": data}),
+            _ => serde_json::json!({"type": signaling_type, "data": data}),
         };
-
-        self.send_message(&message).await
+        let msg = Message::new_webrtc(Some(self.username.clone()), target.to_string(), signaling_data);
+        self.send_message(&msg).await
     }
 
-    async fn send_message(&self, message: &ChatMessage) -> Result<(), JsValue> {
+    async fn send_message(&self, message: &Message) -> Result<(), JsValue> {
         match serde_json::to_string(message) {
             Ok(json_str) => {
                 self.ws.send_with_str(&json_str)?;

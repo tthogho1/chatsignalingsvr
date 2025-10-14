@@ -6,7 +6,6 @@ use std::cell::RefCell;
 use crate::websocket_client::WebSocketClient;
 use crate::webrtc_client::WebRTCClient;
 use crate::dom_helpers::DomHelpers;
-use crate::types::ChatMessage;
 
 // WASM client entry point
 #[wasm_bindgen]
@@ -97,7 +96,7 @@ impl VideoChat {
             let local_stream = webrtc.get_user_media().await?;
             self.dom.set_local_video_stream(&local_stream)?;
             
-            // Create offer
+            // Create offer (SDP)
             let offer = webrtc.create_offer().await?;
             
             // Send offer through WebSocket
