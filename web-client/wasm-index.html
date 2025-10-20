@@ -185,6 +185,53 @@
         if (sendBtn) sendBtn.addEventListener('click', doSend);
         if (messageInput) messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSend(); });
 
+        // Wire up call controls
+        const startCallBtn = document.getElementById('start-call');
+        const endCallBtn = document.getElementById('end-call');
+        const targetUserInput = document.getElementById('target-user');
+
+        const doStartCall = async () => {
+          const targetUser = targetUserInput && 'value' in targetUserInput ? targetUserInput.value.trim() : '';
+          if (!targetUser) {
+            notify('通話相手のユーザー名を入力してください', 'warning');
+            return;
+          }
+          if (!window.videoChat) {
+            notify('未接続です。先に接続してください', 'warning');
+            return;
+          }
+          if (startCallBtn) startCallBtn.disabled = true;
+          try {
+            await videoChat.start_call(targetUser);
+            notify(`${targetUser}への通話を開始しました`);
+          } catch (e) {
+            console.error('Start call failed:', e);
+            notify('通話開始に失敗しました', 'error');
+          } finally {
+            if (startCallBtn) startCallBtn.disabled = false;
+          }
+        };
+
+        const doEndCall = async () => {
+          if (!window.videoChat) {
+            notify('未接続です', 'warning');
+            return;
+          }
+          if (endCallBtn) endCallBtn.disabled = true;
+          try {
+            await videoChat.end_call();
+            notify('通話を終了しました');
+          } catch (e) {
+            console.error('End call failed:', e);
+            notify('通話終了に失敗しました', 'error');
+          } finally {
+            if (endCallBtn) endCallBtn.disabled = false;
+          }
+        };
+
+        if (startCallBtn) startCallBtn.addEventListener('click', doStartCall);
+        if (endCallBtn) endCallBtn.addEventListener('click', doEndCall);
+
         console.log('WASM VideoChat client initialized successfully');
       } catch (error) {
         console.error('Failed to initialize WASM module:', error);

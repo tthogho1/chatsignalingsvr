@@ -7,6 +7,7 @@ use super::message::{ClientId, Message};
 #[derive(Debug, Clone)]
 pub struct Client {
     pub id: ClientId,
+    pub username: Option<String>,
     pub sender: UnboundedSender<Message>,
     pub connected_at: DateTime<Utc>,
 }
@@ -15,9 +16,27 @@ impl Client {
     pub fn new(id: ClientId, sender: UnboundedSender<Message>) -> Self {
         Self {
             id,
+            username: None,
             sender,
             connected_at: Utc::now(),
         }
+    }
+
+    pub fn new_with_username(id: ClientId, username: String, sender: UnboundedSender<Message>) -> Self {
+        Self {
+            id,
+            username: Some(username),
+            sender,
+            connected_at: Utc::now(),
+        }
+    }
+
+    pub fn set_username(&mut self, username: String) {
+        self.username = Some(username);
+    }
+
+    pub fn get_username(&self) -> Option<&String> {
+        self.username.as_ref()
     }
 }
 

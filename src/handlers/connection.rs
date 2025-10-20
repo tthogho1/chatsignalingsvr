@@ -25,13 +25,15 @@ impl ConnectionManager {
     #[instrument(skip(self, client), fields(client_id = %client.id))]
     pub async fn add_client(&self, client: Client) -> ClientId {
         let client_id = client.id.clone();
+        let connected_at = client.connected_at;
         let mut clients = self.clients.write().await;
         clients.insert(client_id.clone(), client);
         
-        debug!(
+        info!(
             client_id = %client_id,
+            connected_at = %connected_at,
             total_clients = clients.len(),
-            "Client added to registry"
+            "Client registered and added to registry"
         );
         
         client_id
@@ -140,6 +142,51 @@ impl ConnectionManager {
             id: client.id.clone(),
             connected_at: client.connected_at,
         }).collect()
+    }
+
+    /// Find client ID by username
+    #[instrument(skip(self), fields(username = %username))]
+    pub async fn find_client_by_username(&self, username: &str) -> Option<ClientId> {
+        let clients = self.clients.read().await;
+        for (client_id, client) in clients.iter() {
+            if let Some(client_username) = &client.username {
+                if client_username == username {
+                    debug!(
+                        client_id = %client_id,
+                        username = %username,
+                        "Found client by username"
+                    );
+                    return Some(client_id.clone());
+                }
+            }
+        }
+        debug!(
+            username = %username,
+            "Client not found by username"
+        );
+        None
+    }
+
+    /// Update a client's username
+    #[instrument(skip(self), fields(client_id = %client_id, username = %username))]
+    pub async fn update_client_username(&self, client_id: &ClientId, username: String) -> bool {
+        let mut clients = self.clients.write().await;
+        if let Some(client) = clients.get_mut(client_id) {
+            client.set_username(username.clone());
+            info!(
+                client_id = %client_id,
+                username = %username,
+                "Client username updated"
+            );
+            true
+        } else {
+            warn!(
+                client_id = %client_id,
+                username = %username,
+                "Cannot update username: client not found"
+            );
+            false
+        }
     }
 }
 
