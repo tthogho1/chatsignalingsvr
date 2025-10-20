@@ -16,19 +16,39 @@ impl SignalingHandler {
     }
 
     /// Handle WebRTC signaling messages (ICE candidates, SDP offers/answers)
-    #[instrument(skip(self, signaling_data), fields(sender_id = %sender_id, target_user_id = %target_user_id, signaling_type = ?signaling_data.get("type")))]
+    /// Now accepts username string for target and resolves to ClientId internally
+    #[instrument(skip(self, signaling_data), fields(sender_id = %sender_id, target_username = %target_username, signaling_type = ?signaling_data.get("type")))]
     pub async fn handle_webrtc_signaling(
         &self,
         sender_id: ClientId,
-        target_user_id: ClientId,
+        target_username: String,
         signaling_data: serde_json::Value,
     ) -> Result<(), ConnectionError> {
         // Extract type for logging before moving signaling_data
         let signaling_type = signaling_data.get("type").cloned();
         
+        // Look up the target client ID by username
+        let target_client_id = self.find_client_by_username(&target_username).await
+            .ok_or_else(|| {
+                warn!(
+                    sender_id = %sender_id,
+                    target_username = %target_username,
+                    "Target user not found by username for signaling message"
+                );
+                ConnectionError::ClientNotFound(target_username.clone())
+            })?;
+
+        info!(
+            sender_id = %sender_id,
+            target_username = %target_username,
+            target_client_id = %target_client_id,
+            signaling_type = ?signaling_type,
+            "Resolved username to client ID for signaling"
+        );
+        
         // Preserve the original signaling data structure
         let message_type = MessageType::WebRTCSignaling {
-            target_user_id: target_user_id.clone(),
+            target_user_id: target_client_id.clone(),
             signaling_data,
         };
         
@@ -37,20 +57,22 @@ impl SignalingHandler {
 
         debug!(
             sender_id = %sender_id,
-            target_user_id = %target_user_id,
+            target_username = %target_username,
+            target_client_id = %target_client_id,
             message_id = %message.id,
             signaling_type = ?signaling_type,
             "Forwarding WebRTC signaling message"
         );
 
         // Forward to the target user
-        let result = self.forward_signaling_message(&target_user_id, message).await;
+        let result = self.forward_signaling_message(&target_client_id, message).await;
 
         match &result {
             Ok(()) => {
                 info!(
                     sender_id = %sender_id,
-                    target_user_id = %target_user_id,
+                    target_username = %target_username,
+                    target_client_id = %target_client_id,
                     signaling_type = ?signaling_type,
                     "WebRTC signaling message delivered successfully"
                 );
@@ -58,7 +80,8 @@ impl SignalingHandler {
             Err(e) => {
                 error!(
                     sender_id = %sender_id,
-                    target_user_id = %target_user_id,
+                    target_username = %target_username,
+                    target_client_id = %target_client_id,
                     signaling_type = ?signaling_type,
                     error = %e,
                     "WebRTC signaling message delivery failed"
@@ -112,6 +135,29 @@ impl SignalingHandler {
         clients.contains_key(user_id)
     }
 
+    /// Find client ID by username (for signaling lookup)
+    #[instrument(skip(self), fields(username = %username))]
+    pub async fn find_client_by_username(&self, username: &str) -> Option<ClientId> {
+        let clients = self.clients.read().await;
+        for (client_id, client) in clients.iter() {
+            if let Some(client_username) = &client.username {
+                if client_username == username {
+                    debug!(
+                        client_id = %client_id,
+                        username = %username,
+                        "Found client by username for signaling"
+                    );
+                    return Some(client_id.clone());
+                }
+            }
+        }
+        debug!(
+            username = %username,
+            "Client not found by username for signaling"
+        );
+        None
+    }
+
     /// Validate signaling data structure (basic validation)
     pub fn validate_signaling_data(signaling_data: &serde_json::Value) -> bool {
         // Basic validation - ensure it's an object and not null
@@ -122,7 +168,7 @@ impl SignalingHandler {
     pub async fn handle_ice_candidate(
         &self,
         sender_id: ClientId,
-        target_user_id: ClientId,
+        target_username: String,
         candidate_data: serde_json::Value,
     ) -> Result<(), ConnectionError> {
         // Validate that this looks like an ICE candidate
@@ -132,14 +178,14 @@ impl SignalingHandler {
             ));
         }
 
-        self.handle_webrtc_signaling(sender_id, target_user_id, candidate_data).await
+        self.handle_webrtc_signaling(sender_id, target_username, candidate_data).await
     }
 
     /// Handle SDP offer/answer messages
     pub async fn handle_sdp_message(
         &self,
         sender_id: ClientId,
-        target_user_id: ClientId,
+        target_username: String,
         sdp_data: serde_json::Value,
     ) -> Result<(), ConnectionError> {
         // Validate that this looks like SDP data
@@ -156,7 +202,7 @@ impl SignalingHandler {
             ));
         }
 
-        self.handle_webrtc_signaling(sender_id, target_user_id, sdp_data).await
+        self.handle_webrtc_signaling(sender_id, target_username, sdp_data).await
     }
 }
 

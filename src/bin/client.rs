@@ -55,25 +55,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match serde_json::from_str::<ChatMessage>(&text) {
                         Ok(chat_msg) => {
                             match &chat_msg.message_type {
-                                MessageType::TextChat { content } => {
+                                MessageType::TextChat { target_user_id: _, content } => {
                                     if let Some(sender) = &chat_msg.sender_id {
                                         println!("[{}]: {}", sender, content);
                                     } else {
                                         println!("[System]: {}", content);
                                     }
                                 }
-                                MessageType::Broadcast { content } => {
-                                    if let Some(sender) = &chat_msg.sender_id {
-                                        println!("[BROADCAST from {}]: {}", sender, content);
-                                    } else {
-                                        println!("[SYSTEM BROADCAST]: {}", content);
-                                    }
-                                }
                                 MessageType::WebRTCSignaling { target_user_id, signaling_data } => {
                                     println!("[SIGNALING to {}]: {:?}", target_user_id, signaling_data);
                                 }
-                                MessageType::Generic { content } => {
-                                    println!("[GENERIC]: {:?}", content);
+                                MessageType::GenericMessage { target_user_id, content } => {
+                                    println!("[GENERIC to {}]: {}", target_user_id, content);
                                 }
                             }
                         }
@@ -141,7 +134,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let content = &input[11..];
                     ChatMessage::new(
                         Some(username.clone()),
-                        MessageType::Broadcast {
+                        MessageType::TextChat {
+                            target_user_id: None,
                             content: content.to_string(),
                         }
                     )
@@ -151,6 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ChatMessage::new(
                             Some(username.clone()),
                             MessageType::TextChat {
+                                target_user_id: Some(parts[0].to_string()),
                                 content: parts[1].to_string(),
                             }
                         )
@@ -188,7 +183,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Default to broadcast
                     ChatMessage::new(
                         Some(username.clone()),
-                        MessageType::Broadcast {
+                        MessageType::TextChat {
+                            target_user_id: None,
                             content: input.to_string(),
                         }
                     )

@@ -1,5 +1,10 @@
 use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::{connect_async, tungstenite::Message, WebSocketStream, MaybeTlsStream};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::Message,
+    MaybeTlsStream,
+    WebSocketStream as TokioWebSocketStream,
+};
 use tokio::net::TcpStream;
 use crate::models::message::{Message as ChatMessage, MessageType};
 use tracing::{info, error, debug};
@@ -7,8 +12,9 @@ use serde_json;
 use std::error::Error;
 use tokio::sync::mpsc;
 
-pub type WebSocketSink = futures_util::stream::SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
-pub type WebSocketStream = futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+type Socket = TokioWebSocketStream<MaybeTlsStream<TcpStream>>;
+pub type WebSocketSink = futures_util::stream::SplitSink<Socket, Message>;
+pub type WebSocketStream = futures_util::stream::SplitStream<Socket>;
 
 /// WebSocket client for chat signaling server
 pub struct ChatClient {
@@ -79,22 +85,24 @@ impl ChatClient {
         }
     }
 
-    /// Send a broadcast message
+    /// Send a broadcast text message (target_user_id = None)
     pub async fn send_broadcast(&mut self, content: &str) -> Result<(), Box<dyn Error>> {
         let message = ChatMessage::new(
             Some(self.username.clone()),
-            MessageType::Broadcast {
+            MessageType::TextChat {
+                target_user_id: None,
                 content: content.to_string(),
             }
         );
         self.send_message(message).await
     }
 
-    /// Send a direct text message
-    pub async fn send_direct_message(&mut self, content: &str) -> Result<(), Box<dyn Error>> {
+    /// Send a direct text message to a specific user
+    pub async fn send_direct_message(&mut self, target_user_id: &str, content: &str) -> Result<(), Box<dyn Error>> {
         let message = ChatMessage::new(
             Some(self.username.clone()),
             MessageType::TextChat {
+                target_user_id: Some(target_user_id.to_string()),
                 content: content.to_string(),
             }
         );
@@ -117,11 +125,14 @@ impl ChatClient {
         self.send_message(message).await
     }
 
-    /// Send a generic message
-    pub async fn send_generic(&mut self, content: serde_json::Value) -> Result<(), Box<dyn Error>> {
+    /// Send a generic message to a specific user (arbitrary content as string)
+    pub async fn send_generic_message(&mut self, target_user_id: &str, content: &str) -> Result<(), Box<dyn Error>> {
         let message = ChatMessage::new(
             Some(self.username.clone()),
-            MessageType::Generic { content }
+            MessageType::GenericMessage {
+                target_user_id: target_user_id.to_string(),
+                content: content.to_string(),
+            }
         );
         self.send_message(message).await
     }

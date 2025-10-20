@@ -288,6 +288,11 @@ impl WebSocketServerConnection {
         mut message_receiver: tokio::sync::mpsc::UnboundedReceiver<crate::models::message::Message>,
     ) -> Result<(), ServerError> {
 
+        info!(
+            client_id = %client_id,
+            "Starting client message handling loop"
+        );
+
         loop {
             tokio::select! {
                 // Handle incoming WebSocket messages from client
@@ -474,6 +479,11 @@ impl WebSocketServerConnection {
     ) -> Result<(), crate::models::error::ConnectionError> {
         use crate::models::message::MessageType;
         use crate::handlers::{message::MessageHandler, signaling::SignalingHandler};
+
+        // Update client username if provided in message sender_id
+        if let Some(username) = &message.sender_id {
+            self.connection_manager.update_client_username(&client_id.to_string(), username.clone()).await;
+        }
 
         // Create handlers with shared client registry
         let message_handler = MessageHandler::new(Arc::clone(&self.clients));
