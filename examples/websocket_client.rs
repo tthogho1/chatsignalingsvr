@@ -60,9 +60,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut write, mut read) = ws_stream.split();
 
     match mode.as_str() {
-        "interactive" => run_interactive_mode(&mut write, &mut read, client_id).await?,
-        "demo" => run_demo_mode(&mut write, &mut read, client_id).await?,
-        "test" => run_test_mode(&mut write, &mut read, client_id).await?,
+        "interactive" => run_interactive_mode(&mut write, read, client_id).await?,
+        "demo" => run_demo_mode(&mut write, read, client_id).await?,
+        "test" => run_test_mode(&mut write, read, client_id).await?,
         _ => unreachable!(),
     }
 
@@ -76,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Interactive mode - user can type messages and commands
 async fn run_interactive_mode(
     write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
-    read: &mut futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
+    mut read: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
     client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🎮 Interactive Mode");
@@ -91,6 +91,7 @@ async fn run_interactive_mode(
 
     // Start message receiver task
     let read_handle = tokio::spawn(async move {
+        let mut read = read;
         while let Some(msg) = read.next().await {
             match msg {
                 Ok(WsMessage::Text(text)) => {
@@ -172,7 +173,7 @@ async fn run_interactive_mode(
 /// Demo mode - automatically sends various types of messages
 async fn run_demo_mode(
     write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
-    read: &mut futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
+    mut read: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
     client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🎭 Demo Mode - Sending example messages");
@@ -243,7 +244,7 @@ async fn run_demo_mode(
 /// Test mode - sends messages and validates responses
 async fn run_test_mode(
     write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
-    read: &mut futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
+    mut read: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
     client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 Test Mode - Validating server functionality");
