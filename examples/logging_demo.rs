@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = ServerConfig::from_env()?;
     
     // Initialize structured logging
-    logging::init_logging(&config)?;
+    logging::init_logging(&config);
 
     // Demonstrate different log levels and structured logging
     info!(

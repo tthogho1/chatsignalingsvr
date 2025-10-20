@@ -43,7 +43,7 @@ async fn start_test_server() -> (WebSocketServer, u16) {
 }
 
 /// Helper function to connect a WebSocket client
-async fn connect_client(port: u16) -> Result<(futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>, futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>), Box<dyn std::error::Error>> {
+async fn connect_client(port: u16) -> Result<(futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>, futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>), Box<dyn std::error::Error + Send + Sync>> {
     let url = format!("ws://127.0.0.1:{}", port);
     let (ws_stream, _) = connect_async(&url).await?;
     let (write, read) = ws_stream.split();
@@ -61,9 +61,10 @@ async fn send_message_and_wait_response(
     write.send(WsMessage::Text(json_str)).await?;
     
     // Wait for response
-    let response = timeout(Duration::from_secs(5), read.next()).await??;
+    let response = timeout(Duration::from_secs(5), read.next()).await?
+        .ok_or("Connection closed unexpectedly")??;
     match response {
-        Some(WsMessage::Text(text)) => {
+        WsMessage::Text(text) => {
             let parsed_message: Message = serde_json::from_str(&text)?;
             Ok(parsed_message)
         }
@@ -111,7 +112,7 @@ async fn test_client_connection_and_disconnection() {
     // Verify connection is closed
     let next_message = timeout(Duration::from_millis(500), read.next()).await;
     match next_message {
-        Ok(Some(WsMessage::Close(_))) | Ok(None) | Err(_) => {
+        Ok(Some(Ok(WsMessage::Close(_)))) | Ok(Some(Err(_))) | Ok(None) | Err(_) => {
             // Expected - connection closed
         }
         _ => panic!("Expected connection to be closed"),
@@ -269,7 +270,7 @@ async fn test_multiple_concurrent_connections() {
             let client_result = connect_client(port).await;
             assert!(client_result.is_ok(), "Client {} should connect successfully", i);
             
-            let (mut write, mut read) = client_result.unwrap();
+            let (mut write, _read) = client_result.unwrap();
             
             // Send a test message
             let test_message = Message::new(
@@ -290,7 +291,7 @@ async fn test_multiple_concurrent_connections() {
             // Close connection
             let _ = write.close().await;
         });
-        handles.push(handle);
+       handles.push(handle);
     }
     
     // Wait for all clients to complete
