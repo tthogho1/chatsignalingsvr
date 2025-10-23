@@ -1,18 +1,17 @@
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{info, debug, warn, error, instrument};
 
-use crate::models::client::ClientRegistry;
 use crate::models::message::{ClientId, Message, MessageType};
 use crate::models::error::ConnectionError;
+use crate::handlers::connection::ConnectionManager;
 
 pub struct SignalingHandler {
-    clients: Arc<RwLock<ClientRegistry>>,
+    connection_manager: Arc<ConnectionManager>,
 }
 
 impl SignalingHandler {
-    pub fn new(clients: Arc<RwLock<ClientRegistry>>) -> Self {
-        Self { clients }
+    pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
+        Self { connection_manager }
     }
 
     /// Handle WebRTC signaling messages (ICE candidates, SDP offers/answers)
@@ -27,8 +26,8 @@ impl SignalingHandler {
         // Extract type for logging before moving signaling_data
         let signaling_type = signaling_data.get("type").cloned();
         
-        // Look up the target client ID by username
-        let target_client_id = self.find_client_by_username(&target_username).await
+        // Look up the target client ID by username using ConnectionManager
+        let target_client_id = self.connection_manager.find_client_by_username(&target_username).await
             .ok_or_else(|| {
                 warn!(
                     sender_id = %sender_id,
@@ -43,7 +42,8 @@ impl SignalingHandler {
             target_username = %target_username,
             target_client_id = %target_client_id,
             signaling_type = ?signaling_type,
-            "Resolved username to client ID for signaling"
+            signaling_data = ?signaling_data,
+            "=== WebRTC Username Resolution Success ==="
         );
         
         // Preserve the original signaling data structure
@@ -54,12 +54,13 @@ impl SignalingHandler {
         
         // Create message with sender identification
         let message = Message::new(Some(sender_id.clone()), message_type);
+        let message_id = message.id.clone(); // IDを事前にコピー
 
         debug!(
             sender_id = %sender_id,
             target_username = %target_username,
             target_client_id = %target_client_id,
-            message_id = %message.id,
+            message_id = %message_id,
             signaling_type = ?signaling_type,
             "Forwarding WebRTC signaling message"
         );
@@ -74,7 +75,8 @@ impl SignalingHandler {
                     target_username = %target_username,
                     target_client_id = %target_client_id,
                     signaling_type = ?signaling_type,
-                    "WebRTC signaling message delivered successfully"
+                    message_id = %message_id,
+                    "=== WebRTC Message Delivery Success ==="
                 );
             }
             Err(e) => {
@@ -84,7 +86,8 @@ impl SignalingHandler {
                     target_client_id = %target_client_id,
                     signaling_type = ?signaling_type,
                     error = %e,
-                    "WebRTC signaling message delivery failed"
+                    error_details = ?e,
+                    "=== WebRTC Message Delivery Failed ==="
                 );
             }
         }
@@ -99,65 +102,11 @@ impl SignalingHandler {
         target_id: &ClientId,
         message: Message,
     ) -> Result<(), ConnectionError> {
-        let clients = self.clients.read().await;
-        
-        match clients.get(target_id) {
-            Some(client) => {
-                client.sender.send(message)
-                    .map_err(|_| {
-                        error!(
-                            target_id = %target_id,
-                            "Channel send failed for signaling message"
-                        );
-                        ConnectionError::DeliveryFailed(
-                            format!("Failed to deliver signaling message to user {}", target_id)
-                        )
-                    })?;
-                debug!(
-                    target_id = %target_id,
-                    "Signaling message forwarded successfully"
-                );
-                Ok(())
-            }
-            None => {
-                warn!(
-                    target_id = %target_id,
-                    "Target user not found for signaling message"
-                );
-                Err(ConnectionError::ClientNotFound(target_id.clone()))
-            }
-        }
+        // Use ConnectionManager to send the message
+        self.connection_manager.send_to_client(target_id, message).await
     }
 
     /// Check if a target user exists for signaling
-    pub async fn target_user_exists(&self, user_id: &ClientId) -> bool {
-        let clients = self.clients.read().await;
-        clients.contains_key(user_id)
-    }
-
-    /// Find client ID by username (for signaling lookup)
-    #[instrument(skip(self), fields(username = %username))]
-    pub async fn find_client_by_username(&self, username: &str) -> Option<ClientId> {
-        let clients = self.clients.read().await;
-        for (client_id, client) in clients.iter() {
-            if let Some(client_username) = &client.username {
-                if client_username == username {
-                    debug!(
-                        client_id = %client_id,
-                        username = %username,
-                        "Found client by username for signaling"
-                    );
-                    return Some(client_id.clone());
-                }
-            }
-        }
-        debug!(
-            username = %username,
-            "Client not found by username for signaling"
-        );
-        None
-    }
-
     /// Validate signaling data structure (basic validation)
     pub fn validate_signaling_data(signaling_data: &serde_json::Value) -> bool {
         // Basic validation - ensure it's an object and not null
@@ -213,28 +162,34 @@ mod tests {
     use crate::models::client::Client;
     use std::collections::HashMap;
     use serde_json::json;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    use crate::models::client::ClientRegistry;
 
-    async fn setup_test_clients() -> (Arc<RwLock<ClientRegistry>>, Vec<(ClientId, mpsc::UnboundedReceiver<Message>)>) {
-        let clients = Arc::new(RwLock::new(HashMap::new()));
+    async fn setup_test_clients() -> (Arc<ConnectionManager>, Vec<(ClientId, mpsc::UnboundedReceiver<Message>)>) {
+        let connection_manager = Arc::new(ConnectionManager::new());
         let mut receivers = Vec::new();
 
         // Create 2 test clients for peer-to-peer signaling
         for i in 1..=2 {
             let client_id = format!("client_{}", i);
+            let username = client_id.clone(); // Use client_id as username for testing
             let (sender, receiver) = mpsc::unbounded_channel();
-            let client = Client::new(client_id.clone(), sender);
+            let mut client = Client::new(client_id.clone(), sender);
+            client.username = Some(username); // Set username for test
             
-            clients.write().await.insert(client_id.clone(), client);
+            // Add clients to the connection manager
+            connection_manager.add_client(client).await;
             receivers.push((client_id, receiver));
         }
 
-        (clients, receivers)
+        (connection_manager, receivers)
     }
 
     #[tokio::test]
     async fn test_webrtc_signaling_success() {
-        let (clients, mut receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, mut receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let signaling_data = json!({
             "type": "offer",
@@ -243,7 +198,7 @@ mod tests {
 
         let result = handler.handle_webrtc_signaling(
             "client_1".to_string(),
-            "client_2".to_string(),
+            "client_2".to_string(),  // Use client_id same as username
             signaling_data.clone(),
         ).await;
 
@@ -268,8 +223,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_webrtc_signaling_user_not_found() {
-        let (clients, _receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, _receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let signaling_data = json!({
             "type": "offer",
@@ -293,8 +248,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_ice_candidate_handling() {
-        let (clients, mut receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, mut receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let ice_candidate = json!({
             "candidate": "candidate:1 1 UDP 2130706431 192.168.1.100 54400 typ host",
@@ -325,8 +280,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_ice_candidate_invalid_data() {
-        let (clients, _receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, _receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let invalid_data = json!("not an object");
 
@@ -347,8 +302,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sdp_offer_handling() {
-        let (clients, mut receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, mut receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let sdp_offer = json!({
             "type": "offer",
@@ -378,8 +333,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sdp_answer_handling() {
-        let (clients, mut receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, mut receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let sdp_answer = json!({
             "type": "answer",
@@ -409,8 +364,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sdp_invalid_data() {
-        let (clients, _receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, _receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let invalid_sdp = json!("not an object");
 
@@ -431,8 +386,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sdp_missing_required_fields() {
-        let (clients, _receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, _receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let incomplete_sdp = json!({
             "type": "offer"
@@ -452,16 +407,6 @@ mod tests {
             }
             _ => panic!("Expected InvalidMessage error"),
         }
-    }
-
-    #[tokio::test]
-    async fn test_target_user_exists() {
-        let (clients, _receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
-
-        assert!(handler.target_user_exists(&"client_1".to_string()).await);
-        assert!(handler.target_user_exists(&"client_2".to_string()).await);
-        assert!(!handler.target_user_exists(&"non_existent".to_string()).await);
     }
 
     #[tokio::test]
@@ -486,8 +431,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_signaling_message_with_sender_identification() {
-        let (clients, mut receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, mut receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let signaling_data = json!({
             "type": "ice-candidate",
@@ -515,8 +460,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_preserve_original_signaling_structure() {
-        let (clients, mut receivers) = setup_test_clients().await;
-        let handler = SignalingHandler::new(clients);
+        let (connection_manager, mut receivers) = setup_test_clients().await;
+        let handler = SignalingHandler::new(connection_manager);
 
         let complex_signaling_data = json!({
             "type": "offer",
@@ -555,8 +500,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_signaling_messages() {
-        let (clients, mut receivers) = setup_test_clients().await;
-        let handler = Arc::new(SignalingHandler::new(clients));
+        let (connection_manager, mut receivers) = setup_test_clients().await;
+        let handler = Arc::new(SignalingHandler::new(connection_manager));
         let mut handles = Vec::new();
 
         // Send multiple signaling messages concurrently

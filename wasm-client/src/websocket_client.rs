@@ -27,7 +27,52 @@ impl WebSocketClient {
         
         client.setup_event_handlers()?;
         
+        // Wait for WebSocket to be ready, then send registration message
+        client.wait_for_connection_and_register().await?;
+        
         Ok(client)
+    }
+
+    /// Wait for WebSocket connection and then send username registration
+    pub async fn wait_for_connection_and_register(&self) -> Result<(), JsValue> {
+        use wasm_bindgen_futures::JsFuture;
+        use js_sys::Promise;
+        
+        web_sys::console::log_1(&"Waiting for WebSocket connection...".into());
+        
+        // Simple delay to allow connection to establish
+        let promise = Promise::new(&mut |resolve, _reject| {
+            let window = web_sys::window().unwrap();
+            let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+                let _ = resolve.call0(&JsValue::NULL);
+            }) as Box<dyn FnMut()>);
+            
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(), 
+                500  // Wait 500ms for connection
+            );
+            callback.forget();
+        });
+        
+        JsFuture::from(promise).await?;
+        web_sys::console::log_1(&"WebSocket should be ready, sending registration...".into());
+        
+        // Send username registration message
+        web_sys::console::log_2(&"=== Registering username with server ===".into(), &self.username.clone().into());
+        
+        let registration_msg = Message::new_text(
+            Some(self.username.clone()), 
+            None, 
+            format!("User {} connected and registered username", self.username)
+        );
+        
+        web_sys::console::log_2(&"Registration message ID:".into(), &registration_msg.id.clone().into());
+        web_sys::console::log_2(&"Sender ID:".into(), &registration_msg.sender_id.as_ref().unwrap_or(&"None".to_string()).into());
+        
+        self.send_message(&registration_msg).await?;
+        web_sys::console::log_1(&"Username registration completed successfully".into());
+        
+        Ok(())
     }
 
     fn setup_event_handlers(&self) -> Result<(), JsValue> {
@@ -51,12 +96,43 @@ impl WebSocketClient {
                             MessageType::TextChat { target_user_id, content } => {
                                 let from = message.sender_id.clone().unwrap_or_else(|| "system".to_string());
                                 let is_broadcast = target_user_id.is_none();
-                                let mut vc = video_chat_clone.borrow_mut();
+                                let vc = video_chat_clone.borrow_mut();
                                 let _ = vc.handle_message(&from, content, is_broadcast);
                             }
                             MessageType::WebRTCSignaling { target_user_id: _, signaling_data } => {
                                 let sender = message.sender_id.clone().unwrap_or_default();
                                 let sig_type_owned = signaling_data.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                
+                                // 受信したWebRTCメッセージの詳細ログ出力
+                                web_sys::console::group_1(&"=== WebRTC Message RECEIVED ===".into());
+                                web_sys::console::log_2(&"Sender:".into(), &sender.clone().into());
+                                web_sys::console::log_2(&"Message ID:".into(), &message.id.clone().into());
+                                web_sys::console::log_2(&"Timestamp:".into(), &message.timestamp.clone().into());
+                                web_sys::console::log_2(&"Signaling Type:".into(), &sig_type_owned.clone().into());
+                                web_sys::console::log_2(&"Full Signaling Data:".into(), &signaling_data.to_string().into());
+                                
+                                // SDPデータの詳細ログ（offer/answerの場合）
+                                if sig_type_owned == "offer" || sig_type_owned == "answer" {
+                                    if let Some(sdp) = signaling_data.get("sdp").and_then(|v| v.as_str()) {
+                                        web_sys::console::log_2(&"SDP Length:".into(), &sdp.len().into());
+                                        web_sys::console::log_2(&"SDP Preview (100 chars):".into(), &sdp.chars().take(100).collect::<String>().into());
+                                    }
+                                }
+                                
+                                // ICE Candidateの詳細ログ
+                                if sig_type_owned == "ice-candidate" {
+                                    if let Some(candidate) = signaling_data.get("candidate").and_then(|v| v.as_str()) {
+                                        web_sys::console::log_2(&"ICE Candidate:".into(), &candidate.into());
+                                    }
+                                    if let Some(sdp_mid) = signaling_data.get("sdpMid").and_then(|v| v.as_str()) {
+                                        web_sys::console::log_2(&"SDP Mid:".into(), &sdp_mid.into());
+                                    }
+                                    if let Some(sdp_mline_index) = signaling_data.get("sdpMLineIndex").and_then(|v| v.as_u64()) {
+                                        web_sys::console::log_2(&"SDP MLine Index:".into(), &sdp_mline_index.into());
+                                    }
+                                }
+                                web_sys::console::group_end();
+
                                 let data_owned = match sig_type_owned.as_str() {
                                     "offer" | "answer" => signaling_data
                                         .get("sdp")
@@ -74,7 +150,7 @@ impl WebSocketClient {
                             }
                             MessageType::GenericMessage { target_user_id: _, content } => {
                                 let from = message.sender_id.clone().unwrap_or_else(|| "system".to_string());
-                                let mut vc = video_chat_clone.borrow_mut();
+                                let vc = video_chat_clone.borrow_mut();
                                 let _ = vc.handle_message(&from, content, false);
                             }
                         }
@@ -122,17 +198,61 @@ impl WebSocketClient {
             "ice-candidate" => serde_json::json!({"type":"ice-candidate", "candidate": data}),
             _ => serde_json::json!({"type": signaling_type, "data": data}),
         };
-        let msg = Message::new_webrtc(Some(self.username.clone()), target.to_string(), signaling_data);
+        let msg = Message::new_webrtc(Some(self.username.clone()), target.to_string(), signaling_data.clone());
+        
+        // 送信するWebRTCメッセージの詳細ログ出力
+        web_sys::console::group_1(&"=== WebRTC Message SENDING ===".into());
+        web_sys::console::log_2(&"From:".into(), &self.username.clone().into());
+        web_sys::console::log_2(&"To:".into(), &target.into());
+        web_sys::console::log_2(&"Message ID:".into(), &msg.id.clone().into());
+        web_sys::console::log_2(&"Timestamp:".into(), &msg.timestamp.clone().into());
+        web_sys::console::log_2(&"Signaling Type:".into(), &signaling_type.into());
+        web_sys::console::log_2(&"Full Signaling Data:".into(), &signaling_data.to_string().into());
+        
+        // SDPデータの詳細ログ（offer/answerの場合）
+        if signaling_type == "offer" || signaling_type == "answer" {
+            web_sys::console::log_2(&"SDP Length:".into(), &data.len().into());
+            web_sys::console::log_2(&"SDP Preview (100 chars):".into(), &data.chars().take(100).collect::<String>().into());
+        }
+        
+        // ICE Candidateの詳細ログ
+        if signaling_type == "ice-candidate" {
+            web_sys::console::log_2(&"ICE Candidate:".into(), &data.into());
+        }
+        web_sys::console::group_end();
+        
         self.send_message(&msg).await
     }
 
     async fn send_message(&self, message: &Message) -> Result<(), JsValue> {
+        // Detailed logging for message being sent
+        web_sys::console::group_1(&"=== Sending Message to Server ===".into());
+        web_sys::console::log_2(&"Message ID:".into(), &message.id.clone().into());
+        web_sys::console::log_2(&"Sender ID:".into(), &message.sender_id.as_ref().unwrap_or(&"<None>".to_string()).into());
+        web_sys::console::log_2(&"Message Type:".into(), &format!("{:?}", message.message_type).into());
+        web_sys::console::log_2(&"Timestamp:".into(), &message.timestamp.clone().into());
+        
         match serde_json::to_string(message) {
             Ok(json_str) => {
-                self.ws.send_with_str(&json_str)?;
-                Ok(())
+                web_sys::console::log_2(&"JSON Payload:".into(), &json_str.clone().into());
+                web_sys::console::log_2(&"WebSocket Ready State:".into(), &self.ws.ready_state().into());
+                
+                match self.ws.send_with_str(&json_str) {
+                    Ok(_) => {
+                        web_sys::console::log_1(&"✅ Message sent successfully".into());
+                        web_sys::console::group_end();
+                        Ok(())
+                    }
+                    Err(e) => {
+                        web_sys::console::error_1(&format!("❌ Failed to send message: {:?}", e).into());
+                        web_sys::console::group_end();
+                        Err(e)
+                    }
+                }
             }
             Err(e) => {
+                web_sys::console::error_1(&format!("❌ Failed to serialize message: {}", e).into());
+                web_sys::console::group_end();
                 Err(JsValue::from_str(&format!("Failed to serialize message: {}", e)))
             }
         }
