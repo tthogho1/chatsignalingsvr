@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    console, MediaDevices, MediaStream, MediaStreamConstraints,
+    console, MediaStream, MediaStreamConstraints,
     RtcPeerConnection, RtcConfiguration, RtcSessionDescription,
     RtcSessionDescriptionInit, RtcIceCandidate, RtcIceCandidateInit, RtcSdpType
 };
@@ -71,7 +71,7 @@ impl WebRTCClient {
         ontrack_callback.forget();
 
         // OnICECandidate handler
-        let pc_clone = self.peer_connection.clone();
+        let _pc_clone = self.peer_connection.clone();
         let onicecandidate_callback = Closure::wrap(Box::new(move |event: web_sys::RtcPeerConnectionIceEvent| {
             if let Some(candidate) = event.candidate() {
                 console::log_1(&"New ICE candidate generated".into());
@@ -86,7 +86,7 @@ impl WebRTCClient {
 
         // OnConnectionStateChange handler
         let onconnectionstatechange_callback = Closure::wrap(Box::new(move |_event| {
-            console::log_1(&"Connection state changed".into());
+            console::log_1(&"WebRTC connection state changed".into());
         }) as Box<dyn FnMut(JsValue)>);
         
         self.peer_connection.set_onconnectionstatechange(Some(onconnectionstatechange_callback.as_ref().unchecked_ref()));
@@ -101,7 +101,7 @@ impl WebRTCClient {
         let media_devices = navigator.media_devices()?;
 
         // Create constraints
-        let mut constraints = MediaStreamConstraints::new();
+        let constraints = MediaStreamConstraints::new();
         constraints.set_video(&JsValue::from(true));
         constraints.set_audio(&JsValue::from(true));
 
@@ -118,7 +118,7 @@ impl WebRTCClient {
         let tracks = media_stream.get_tracks();
         for i in 0..tracks.length() {
             let track = tracks.get(i);
-            if let Ok(media_track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
+            if let Ok(_media_track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
                 // Note: add_track is not available in web-sys, we'll handle this in JavaScript
                 // For now, we'll just store the stream
                 console::log_1(&"Track added to local stream".into());
@@ -129,6 +129,8 @@ impl WebRTCClient {
     }
 
     pub async fn create_offer(&self) -> Result<String, JsValue> {
+        console::log_1(&"Creating WebRTC offer with fresh peer connection".into());
+        
         let promise = self.peer_connection.create_offer();
         let js_future = JsFuture::from(promise);
         let offer = js_future.await?;
@@ -146,7 +148,7 @@ impl WebRTCClient {
 
     pub async fn handle_offer(&self, sdp: &str) -> Result<String, JsValue> {
         // Create remote description from offer
-        let mut remote_desc = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
+        let remote_desc = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
         remote_desc.set_sdp(sdp);
 
         // Set remote description
@@ -172,7 +174,7 @@ impl WebRTCClient {
 
     pub async fn handle_answer(&self, sdp: &str) -> Result<(), JsValue> {
         // Create remote description from answer
-        let mut remote_desc = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
+        let remote_desc = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
         remote_desc.set_sdp(sdp);
 
         // Set remote description
@@ -192,7 +194,7 @@ impl WebRTCClient {
             candidate_data["candidate"].as_str(),
             candidate_data["sdpMid"].as_str()
         ) {
-            let mut ice_candidate_init = RtcIceCandidateInit::new(candidate);
+            let ice_candidate_init = RtcIceCandidateInit::new(candidate);
             ice_candidate_init.set_sdp_mid(Some(sdp_mid));
             
             if let Some(sdp_m_line_index) = candidate_data["sdpMLineIndex"].as_u64() {
@@ -237,11 +239,15 @@ impl WebRTCClient {
     }
 
     pub fn close_connection(&self) -> Result<(), JsValue> {
+        console::group_1(&"=== Closing WebRTC Connection ===".into());
+        
         self.peer_connection.close();
+        console::log_1(&"PeerConnection closed".into());
         
         // Stop all tracks
         if let Some(ref stream) = &*self.local_stream.borrow() {
             let tracks = stream.get_tracks();
+            console::log_2(&"Stopping tracks, count:".into(), &tracks.length().into());
             for i in 0..tracks.length() {
                 let track = tracks.get(i);
                 if let Ok(media_track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
@@ -252,6 +258,8 @@ impl WebRTCClient {
 
         *self.local_stream.borrow_mut() = None;
         *self.remote_stream.borrow_mut() = None;
+        console::log_1(&"Local and remote streams cleared".into());
+        console::group_end();
 
         Ok(())
     }

@@ -89,21 +89,37 @@ impl VideoChat {
             return Err(JsValue::from_str("Not connected to server"));
         }
 
-        console::log_2(&"Starting call to".into(), &target_user.into());
+        // 通話開始の詳細ログ
+        console::group_1(&"=== Starting WebRTC Call ===".into());
+        console::log_2(&"Caller:".into(), &self.username.as_ref().unwrap_or(&"unknown".to_string()).into());
+        console::log_2(&"Target:".into(), &target_user.into());
+        
+        // Initialize new WebRTC client for this call (in case of reconnection)
+        console::log_1(&"Initializing fresh WebRTC client...".into());
+        let webrtc_client = WebRTCClient::new().await?;
+        *self.webrtc.borrow_mut() = Some(webrtc_client);
+        
+        console::log_1(&"Getting user media...".into());
         
         // Get user media
         if let Some(ref webrtc) = &*self.webrtc.borrow() {
             let local_stream = webrtc.get_user_media().await?;
+            console::log_1(&"User media obtained successfully".into());
             self.dom.set_local_video_stream(&local_stream)?;
             
             // Create offer (SDP)
+            console::log_1(&"Creating WebRTC offer...".into());
             let offer = webrtc.create_offer().await?;
+            console::log_2(&"Offer created, SDP length:".into(), &offer.len().into());
             
             // Send offer through WebSocket
             if let Some(ref websocket) = &*self.websocket.borrow() {
+                console::log_1(&"Sending offer to server...".into());
                 websocket.send_signaling_message(target_user, "offer", &offer).await?;
+                console::log_1(&"Offer sent successfully".into());
             }
         }
+        console::group_end();
         
         self.current_call = Some(target_user.to_string());
         self.is_in_call = true;
@@ -116,26 +132,31 @@ impl VideoChat {
 
     #[wasm_bindgen]
     pub fn end_call(&mut self) -> Result<(), JsValue> {
-        console::log_1(&"Ending call".into());
+        console::group_1(&"=== Ending WebRTC Call ===".into());
+        console::log_2(&"Current call with:".into(), &self.current_call.clone().unwrap_or("unknown".to_string()).into());
         
         // Close peer connection
         if let Some(ref webrtc) = &*self.webrtc.borrow() {
+            console::log_1(&"Closing WebRTC peer connection".into());
             webrtc.close_connection()?;
         }
         
         // Notify other party
         if let Some(ref current_call) = &self.current_call {
             if let Some(ref websocket) = &*self.websocket.borrow() {
+                console::log_2(&"Notifying remote peer of hangup:".into(), &current_call.into());
                 let _ = websocket.send_signaling_message(current_call, "hangup", "");
             }
         }
         
         self.current_call = None;
         self.is_in_call = false;
+        console::log_1(&"Call state cleared".into());
         
         // Update UI
         self.dom.update_call_status(false, "")?;
         self.dom.clear_remote_video()?;
+        console::group_end();
         
         Ok(())
     }
@@ -188,20 +209,33 @@ impl VideoChat {
 
     #[wasm_bindgen]
     pub async fn handle_signaling_message(&mut self, from: &str, signaling_type: &str, data: &str) -> Result<(), JsValue> {
-        console::log_3(&"Received signaling message".into(), &signaling_type.into(), &from.into());
+        // WebRTCシグナリング処理の詳細ログ
+        console::group_1(&"=== Handling WebRTC Signaling ===".into());
+        console::log_2(&"From:".into(), &from.into());
+        console::log_2(&"Type:".into(), &signaling_type.into());
+        console::log_2(&"Data length:".into(), &data.len().into());
+        console::log_2(&"Current user:".into(), &self.username.as_ref().unwrap_or(&"unknown".to_string()).into());
         
         match signaling_type {
             "offer" => {
+                console::log_1(&"Processing incoming call offer".into());
+                console::log_2(&"SDP preview (100 chars):".into(), &data.chars().take(100).collect::<String>().into());
+                
                 // Handle incoming call
                 let should_accept = self.dom.show_incoming_call_dialog(from)?;
                 if should_accept {
+                    console::log_1(&"Call accepted, setting up WebRTC connection".into());
                     if let Some(ref webrtc) = &*self.webrtc.borrow() {
                         let local_stream = webrtc.get_user_media().await?;
+                        console::log_1(&"Local stream obtained".into());
                         self.dom.set_local_video_stream(&local_stream)?;
                         
+                        console::log_1(&"Processing offer and creating answer".into());
                         let answer = webrtc.handle_offer(data).await?;
+                        console::log_2(&"Answer created, SDP length:".into(), &answer.len().into());
                         
                         if let Some(ref websocket) = &*self.websocket.borrow() {
+                            console::log_1(&"Sending answer to caller".into());
                             websocket.send_signaling_message(from, "answer", &answer).await?;
                         }
                         
@@ -210,6 +244,7 @@ impl VideoChat {
                         self.dom.update_call_status(true, from)?;
                     }
                 } else {
+                    console::log_1(&"Call rejected by user".into());
                     // Reject call
                     if let Some(ref websocket) = &*self.websocket.borrow() {
                         websocket.send_signaling_message(from, "reject", "").await?;
@@ -217,19 +252,27 @@ impl VideoChat {
                 }
             }
             "answer" => {
+                console::log_1(&"Processing call answer from callee".into());
+                console::log_2(&"SDP preview (100 chars):".into(), &data.chars().take(100).collect::<String>().into());
                 if let Some(ref webrtc) = &*self.webrtc.borrow() {
                     webrtc.handle_answer(data).await?;
+                    console::log_1(&"Answer processed successfully".into());
                 }
             }
             "ice-candidate" => {
+                console::log_1(&"Processing ICE candidate".into());
+                console::log_2(&"Candidate data:".into(), &data.into());
                 if let Some(ref webrtc) = &*self.webrtc.borrow() {
                     webrtc.handle_ice_candidate(data).await?;
+                    console::log_1(&"ICE candidate processed successfully".into());
                 }
             }
             "hangup" => {
+                console::log_1(&"Call ended by remote peer".into());
                 self.end_call()?;
             }
             "reject" => {
+                console::log_1(&"Call was rejected by remote peer".into());
                 self.dom.show_notification("Call rejected", "warning")?;
                 self.end_call()?;
             }
@@ -237,6 +280,7 @@ impl VideoChat {
                 console::log_2(&"Unknown signaling type:".into(), &signaling_type.into());
             }
         }
+        console::group_end();
         
         Ok(())
     }

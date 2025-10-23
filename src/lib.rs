@@ -420,7 +420,7 @@ impl WebSocketServerConnection {
                         )
                     })?;
 
-                debug!(
+                info!(
                     client_id = %client_id,
                     message_id = %parsed_message.id,
                     message_type = ?parsed_message.message_type,
@@ -481,13 +481,37 @@ impl WebSocketServerConnection {
         use crate::handlers::{message::MessageHandler, signaling::SignalingHandler};
 
         // Update client username if provided in message sender_id
+        info!(
+            client_id = %client_id,
+            message_id = %message.id,
+            sender_id = ?message.sender_id,
+            message_type = ?message.message_type,
+            timestamp = %message.timestamp,
+            "=== Processing Message - Debug ==="
+        );
+        
         if let Some(username) = &message.sender_id {
+            info!(
+                client_id = %client_id,
+                username = %username,
+                message_id = %message.id,
+                message_type = ?message.message_type,
+                timestamp = %message.timestamp,
+                "=== User Information Registration ==="
+            );
             self.connection_manager.update_client_username(&client_id.to_string(), username.clone()).await;
+        } else {
+            warn!(
+                client_id = %client_id,
+                message_id = %message.id,
+                message_type = ?message.message_type,
+                "=== Missing sender_id in message - No username registration ==="
+            );
         }
 
         // Create handlers with shared client registry
         let message_handler = MessageHandler::new(Arc::clone(&self.clients));
-        let signaling_handler = SignalingHandler::new(Arc::clone(&self.clients));
+        let signaling_handler = SignalingHandler::new(Arc::clone(&self.connection_manager));
 
         // Route based on message type
         let result = match &message.message_type {
@@ -508,14 +532,39 @@ impl WebSocketServerConnection {
                 ).await
             }
             MessageType::WebRTCSignaling { target_user_id, signaling_data } => {
+                // WebRTC情報とユーザー情報の詳細ログ出力
                 info!(
                     client_id = %client_id,
                     message_id = %message.id,
-                    target_user_id = %target_user_id,
+                    sender_username = %message.sender_id.as_ref().unwrap_or(&"<unknown>".to_string()),
+                    target_username = %target_user_id,
                     signaling_type = ?signaling_data.get("type"),
+                    signaling_data = ?signaling_data,
+                    timestamp = %message.timestamp,
                     message_type = "webrtc_signaling",
-                    "Routing WebRTC signaling message"
+                    "=== WebRTC Signaling Message Received ==="
                 );
+
+                // SDPデータの詳細ログ（offerまたはanswerの場合）
+                if let Some(signaling_type) = signaling_data.get("type") {
+                    if signaling_type == "offer" || signaling_type == "answer" {
+                        if let Some(sdp) = signaling_data.get("sdp") {
+                            debug!(
+                                client_id = %client_id,
+                                signaling_type = ?signaling_type,
+                                sdp_length = sdp.as_str().map_or(0, |s| s.len()),
+                                sdp_preview = %sdp.as_str().unwrap_or("").chars().take(100).collect::<String>(),
+                                "WebRTC SDP Data Details"
+                            );
+                        }
+                    } else if signaling_type == "ice-candidate" {
+                        debug!(
+                            client_id = %client_id,
+                            candidate_data = ?signaling_data,
+                            "WebRTC ICE Candidate Data"
+                        );
+                    }
+                }
                 
                 signaling_handler.handle_webrtc_signaling(
                     client_id.to_string(),

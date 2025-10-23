@@ -2,10 +2,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use chrono::Utc;
-use tracing::{info, debug, warn, instrument};
+use tracing::{info, debug, warn, error, instrument};
 
 use crate::models::client::{Client, ClientRegistry};
-use crate::models::message::ClientId;
+use crate::models::message::{ClientId, Message};
+use crate::models::error::ConnectionError;
 
 pub struct ConnectionManager {
     clients: Arc<RwLock<ClientRegistry>>,
@@ -172,20 +173,56 @@ impl ConnectionManager {
     pub async fn update_client_username(&self, client_id: &ClientId, username: String) -> bool {
         let mut clients = self.clients.write().await;
         if let Some(client) = clients.get_mut(client_id) {
+            let old_username = client.username.clone();
             client.set_username(username.clone());
             info!(
                 client_id = %client_id,
-                username = %username,
-                "Client username updated"
+                old_username = ?old_username,
+                new_username = %username,
+                "=== Client Username Updated Successfully ==="
             );
             true
         } else {
             warn!(
                 client_id = %client_id,
                 username = %username,
-                "Cannot update username: client not found"
+                total_clients = clients.len(),
+                "Cannot update username: client not found in registry"
             );
             false
+        }
+    }
+
+    /// Send a message to a specific client
+    #[instrument(skip(self, message), fields(target_id = %target_id, message_id = %message.id))]
+    pub async fn send_to_client(&self, target_id: &ClientId, message: Message) -> Result<(), ConnectionError> {
+        let clients = self.clients.read().await;
+        
+        match clients.get(target_id) {
+            Some(client) => {
+                client.sender.send(message)
+                    .map_err(|_| {
+                        error!(
+                            target_id = %target_id,
+                            "Channel send failed for message"
+                        );
+                        ConnectionError::DeliveryFailed(
+                            format!("Failed to deliver message to client {}", target_id)
+                        )
+                    })?;
+                debug!(
+                    target_id = %target_id,
+                    "Message sent successfully"
+                );
+                Ok(())
+            }
+            None => {
+                warn!(
+                    target_id = %target_id,
+                    "Target client not found for message delivery"
+                );
+                Err(ConnectionError::ClientNotFound(target_id.clone()))
+            }
         }
     }
 }
