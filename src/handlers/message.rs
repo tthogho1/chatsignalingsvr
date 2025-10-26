@@ -27,7 +27,7 @@ impl MessageHandler {
             target_user_id: target_user_id.clone(),
             content,
         };
-        let message = Message::new(Some(sender_id.clone()), message_type);
+        let message = Message::new_simple(Some(sender_id.clone()), message_type);
 
         let result = match &target_user_id {
             Some(target_id) => {
@@ -181,7 +181,7 @@ impl MessageHandler {
         };
         
         // Create message with sender identification
-        let message = Message::new(Some(sender_id.clone()), message_type);
+        let message = Message::new_simple(Some(sender_id.clone()), message_type);
 
         debug!(
             sender_id = %sender_id,
@@ -387,7 +387,7 @@ mod tests {
         let (clients, mut receivers) = setup_test_clients().await;
         let handler = MessageHandler::new(clients);
 
-        let message = Message::new(
+        let message = Message::new_simple(
             Some("sender".to_string()),
             MessageType::TextChat {
                 target_user_id: Some("client_1".to_string()),
@@ -411,7 +411,7 @@ mod tests {
         let (clients, mut receivers) = setup_test_clients().await;
         let handler = MessageHandler::new(clients);
 
-        let message = Message::new(
+        let message = Message::new_simple(
             Some("client_1".to_string()),
             MessageType::TextChat {
                 target_user_id: None,

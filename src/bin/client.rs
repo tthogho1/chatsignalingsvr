@@ -132,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let message = if input.starts_with("/broadcast ") {
                     let content = &input[11..];
-                    ChatMessage::new(
+                    ChatMessage::new_simple(
                         Some(username.clone()),
                         MessageType::TextChat {
                             target_user_id: None,
@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if input.starts_with("/direct ") {
                     let parts: Vec<&str> = input[8..].splitn(2, ' ').collect();
                     if parts.len() == 2 {
-                        ChatMessage::new(
+                        ChatMessage::new_simple(
                             Some(username.clone()),
                             MessageType::TextChat {
                                 target_user_id: Some(parts[0].to_string()),
@@ -168,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         };
                         
-                        ChatMessage::new(
+                        ChatMessage::new_simple(
                             Some(username.clone()),
                             MessageType::WebRTCSignaling {
                                 target_user_id: target_user,
@@ -181,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 } else {
                     // Default to broadcast
-                    ChatMessage::new(
+                    ChatMessage::new_simple(
                         Some(username.clone()),
                         MessageType::TextChat {
                             target_user_id: None,

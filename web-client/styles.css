@@ -533,3 +533,49 @@ input[type='text']:focus {
 .chat-messages::-webkit-scrollbar-thumb:hover {
   background: #95a5a6;
 }
+
+/* Notifications */
+.notifications {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 350px;
+}
+
+.notification {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 10px;
+  padding: 15px;
+  margin-bottom: 10px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  border-left: 4px solid #3498db;
+  animation: slideIn 0.3s ease-out;
+}
+
+.notification-success {
+  border-left-color: #27ae60;
+  background: rgba(46, 204, 113, 0.1);
+}
+
+.notification-error {
+  border-left-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.notification-warning {
+  border-left-color: #f39c12;
+  background: rgba(243, 156, 18, 0.1);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
