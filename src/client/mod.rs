@@ -87,7 +87,7 @@ impl ChatClient {
 
     /// Send a broadcast text message (target_user_id = None)
     pub async fn send_broadcast(&mut self, content: &str) -> Result<(), Box<dyn Error>> {
-        let message = ChatMessage::new(
+        let message = ChatMessage::new_simple(
             Some(self.username.clone()),
             MessageType::TextChat {
                 target_user_id: None,
@@ -99,7 +99,7 @@ impl ChatClient {
 
     /// Send a direct text message to a specific user
     pub async fn send_direct_message(&mut self, target_user_id: &str, content: &str) -> Result<(), Box<dyn Error>> {
-        let message = ChatMessage::new(
+        let message = ChatMessage::new_simple(
             Some(self.username.clone()),
             MessageType::TextChat {
                 target_user_id: Some(target_user_id.to_string()),
@@ -115,7 +115,7 @@ impl ChatClient {
         target_user_id: &str, 
         signaling_data: serde_json::Value
     ) -> Result<(), Box<dyn Error>> {
-        let message = ChatMessage::new(
+        let message = ChatMessage::new_simple(
             Some(self.username.clone()),
             MessageType::WebRTCSignaling {
                 target_user_id: target_user_id.to_string(),
@@ -127,7 +127,7 @@ impl ChatClient {
 
     /// Send a generic message to a specific user (arbitrary content as string)
     pub async fn send_generic_message(&mut self, target_user_id: &str, content: &str) -> Result<(), Box<dyn Error>> {
-        let message = ChatMessage::new(
+        let message = ChatMessage::new_simple(
             Some(self.username.clone()),
             MessageType::GenericMessage {
                 target_user_id: target_user_id.to_string(),

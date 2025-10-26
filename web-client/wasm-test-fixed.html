@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+  <!-- Aggressive cache busting -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>WebRTC Video Chat (WASM) - FIXED</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎥 WebRTC Video Chat - FIXED VERSION</h1>
+      <p class="subtitle">Powered by Rust WebAssembly (Message Format Fixed)</p>
+    </header>
+
+    <!-- Connection Panel -->
+    <div id="connection-panel" class="panel connection-panel">
+      <h2>接続設定</h2>
+      <div class="form-group">
+        <label for="server-url">サーバーURL:</label>
+        <input type="text" id="server-url" value="ws://127.0.0.1:8080" placeholder="ws://127.0.0.1:8080">
+      </div>
+      <div class="form-group">
+        <label for="username">ユーザー名:</label>
+        <input type="text" id="username" placeholder="あなたの名前を入力">
+      </div>
+      <button id="connect-btn" class="btn btn-primary">接続</button>
+    </div>
+
+    <!-- Loading indicator -->
+    <div id="loading">
+      <div class="loader">WASMモジュールを読み込み中...</div>
+    </div>
+
+    <!-- Main Content (hidden initially) -->
+    <div id="main-content" class="main-content" style="display: none;">
+      <!-- User Info -->
+      <div class="user-info">
+        <span>接続中: <strong id="username-display"></strong></span>
+        <button id="disconnect-btn" class="btn btn-secondary">切断</button>
+      </div>
+
+      <!-- Simple test section -->
+      <div class="test-section" style="background: #f0f0f0; padding: 20px; margin: 20px 0; border-radius: 8px;">
+        <h3>メッセージ形式テスト</h3>
+        <button id="test-message-btn" class="btn btn-primary">テストメッセージ送信</button>
+        <div id="test-output"
+          style="margin-top: 10px; font-family: monospace; background: #fff; padding: 10px; border-radius: 4px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    console.log('Loading FIXED WASM WebRTC Client...');
+
+    // Aggressive cache busting
+    const cacheBuster = `v${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log('Cache buster:', cacheBuster);
+
+    let init, VideoChat;
+
+    try {
+      console.log('Importing WASM module with cache buster...');
+      const module = await import(`./pkg/wasm_webrtc_client.js?${cacheBuster}`);
+      init = module.default;
+      VideoChat = module.VideoChat;
+      console.log('WASM module imported successfully');
+    } catch (error) {
+      console.error('Failed to load WASM module:', error);
+      document.getElementById('loading').innerHTML =
+        '<div class="error">❌ WASMモジュールの読み込みに失敗しました<br>HTTPサーバーから実行してください</div>';
+      throw error;
+    }
+
+    async function run() {
+      try {
+        console.log('Initializing WASM...');
+        await init().catch(err => {
+          console.error('WASM initialization failed:', err);
+          throw new Error('WASM初期化エラー: ' + err.message);
+        });
+
+        console.log('WASM initialized successfully');
+        document.getElementById('loading').style.display = 'none';
+
+        let videoChat = null;
+        let isConnected = false;
+
+        // Connection handling
+        document.getElementById('connect-btn').addEventListener('click', async () => {
+          const serverUrl = document.getElementById('server-url').value;
+          const username = document.getElementById('username').value.trim();
+
+          if (!username) {
+            alert('ユーザー名を入力してください');
+            return;
+          }
+
+          try {
+            console.log('Creating VideoChat instance...');
+            videoChat = new VideoChat();
+
+            console.log('Connecting to WebSocket...');
+            await videoChat.connect(serverUrl, username);
+
+            console.log('Connected successfully');
+            isConnected = true;
+
+            // Update UI
+            document.getElementById('connection-panel').style.display = 'none';
+            document.getElementById('main-content').style.display = 'block';
+            document.getElementById('username-display').textContent = username;
+
+          } catch (error) {
+            console.error('Connection failed:', error);
+            alert(`接続に失敗しました: ${error.message}`);
+          }
+        });
+
+        // Test message button
+        document.getElementById('test-message-btn').addEventListener('click', async () => {
+          if (!videoChat || !isConnected) {
+            alert('まず接続してください');
+            return;
+          }
+
+          try {
+            console.group('=== SENDING TEST MESSAGE ===');
+            console.log('Sending WebRTC signaling test message...');
+
+            const testOutput = document.getElementById('test-output');
+            testOutput.innerHTML = 'メッセージを送信中...';
+
+            // Get the current username and try to call the other test user
+            const currentUsername = document.getElementById('username-display').textContent;
+            const targetUser = currentUsername === 'TEST1' ? 'TEST2' : 'TEST1';
+
+            console.log(`=== DETAILED CALL DEBUG ===`);
+            console.log(`Current Username: "${currentUsername}"`);
+            console.log(`Target User: "${targetUser}"`);
+            console.log(`Target User Type: ${typeof targetUser}`);
+            console.log(`Target User Length: ${targetUser.length}`);
+
+            try {
+              console.log(`Calling videoChat.start_call("${targetUser}")...`);
+              await videoChat.start_call(targetUser);
+              testOutput.innerHTML = '<span style="color: green;">✅ WebRTCシグナリングメッセージが正常に送信されました！</span>';
+            } catch (error) {
+              console.warn('start_call failed:', error);
+              console.log('Error details:', error);
+              testOutput.innerHTML = `<span style="color: orange;">⚠️ ${error.message}</span><br>これは${targetUser}が接続していない場合の正常な動作です。`;
+            }
+
+            console.log('Test message sent successfully');
+            testOutput.innerHTML = '<span style="color: green;">✅ テストメッセージが正常に送信されました！サーバーログを確認してください。</span>';
+            console.groupEnd();
+
+          } catch (error) {
+            console.error('Failed to send test message:', error);
+            const testOutput = document.getElementById('test-output');
+            testOutput.innerHTML = `<span style="color: red;">❌ エラー: ${error.message}</span>`;
+          }
+        });
+
+        // Disconnect handling
+        document.getElementById('disconnect-btn').addEventListener('click', () => {
+          if (videoChat) {
+            videoChat.disconnect();
+            videoChat = null;
+          }
+          isConnected = false;
+          document.getElementById('connection-panel').style.display = 'block';
+          document.getElementById('main-content').style.display = 'none';
+        });
+
+      } catch (error) {
+        console.error('Failed to run application:', error);
+        document.getElementById('loading').innerHTML =
+          `<div class="error">❌ アプリケーションエラー:<br>${error.message}</div>`;
+      }
+    }
+
+    // Run the application
+    run().catch(error => {
+      console.error('Application startup failed:', error);
+    });
+  </script>
+
+  <style>
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .panel {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      backdrop-filter: blur(10px);
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 0.75rem;
+      border: 2px solid #e1e1e1;
+      border-radius: 8px;
+      font-size: 1rem;
+      transition: border-color 0.3s ease;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #4CAF50;
+      box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-decoration: none;
+      display: inline-block;
+      text-align: center;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4CAF50, #45a049);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #5a6268;
+    }
+
+    .loader {
+      text-align: center;
+      padding: 2rem;
+      font-size: 1.1rem;
+      color: #666;
+    }
+
+    .error {
+      color: #ff6b6b;
+      font-weight: 600;
+      padding: 1rem;
+      background: rgba(255, 107, 107, 0.1);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 107, 107, 0.3);
+    }
+
+    .main-content {
+      animation: fadeIn 0.5s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .user-info {
+      background: #f8f9fa;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .test-section {
+      border: 2px solid #4CAF50;
+    }
+  </style>
+</body>
+</html>

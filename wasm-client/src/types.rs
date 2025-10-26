@@ -22,6 +22,7 @@ pub enum MessageType {
 pub struct Message {
     pub id: String,
     pub sender_id: Option<String>,
+    pub sender_username: Option<String>,
     pub timestamp: String, // ISO 8601 string for portability
     pub message_type: MessageType,
 }
@@ -31,6 +32,7 @@ impl Message {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             sender_id: sender,
+            sender_username: None, // Will be filled by server
             timestamp: js_sys::Date::new_0().to_iso_string().into(),
             message_type: MessageType::TextChat { target_user_id, content },
         }
@@ -40,6 +42,7 @@ impl Message {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             sender_id: sender,
+            sender_username: None, // Will be filled by server
             timestamp: js_sys::Date::new_0().to_iso_string().into(),
             message_type: MessageType::WebRTCSignaling { target_user_id, signaling_data },
         }
@@ -49,6 +52,7 @@ impl Message {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             sender_id: sender,
+            sender_username: None, // Will be filled by server
             timestamp: js_sys::Date::new_0().to_iso_string().into(),
             message_type: MessageType::GenericMessage { target_user_id, content },
         }

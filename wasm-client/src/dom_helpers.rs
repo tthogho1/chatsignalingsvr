@@ -40,9 +40,22 @@ impl DomHelpers {
     }
 
     pub fn set_local_video_stream(&self, stream: &MediaStream) -> Result<(), JsValue> {
+        web_sys::console::log_1(&"Setting local video stream...".into());
         if let Ok(video) = self.get_element_by_id("local-video") {
             let video_element: HtmlVideoElement = video.dyn_into()?;
             video_element.set_src_object(Some(stream));
+            video_element.set_autoplay(true);
+            video_element.set_muted(true); // Local video should be muted to avoid echo
+            // onloadedmetadataイベントでplay()を呼ぶ
+            let video_clone = video_element.clone();
+            let closure = wasm_bindgen::closure::Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                let _ = video_clone.play();
+            }) as Box<dyn FnMut(_)>);
+            video_element.set_onloadedmetadata(Some(closure.as_ref().unchecked_ref()));
+            closure.forget();
+            web_sys::console::log_1(&"✅ Local video stream set and playing".into());
+        } else {
+            web_sys::console::error_1(&"❌ local-video element not found".into());
         }
         Ok(())
     }
@@ -132,7 +145,16 @@ impl DomHelpers {
     pub fn show_incoming_call_dialog(&self, from: &str) -> Result<bool, JsValue> {
         let window = window().ok_or("No global window exists")?;
         let message = format!("Incoming call from {}. Accept?", from);
-        Ok(window.confirm_with_message(&message)?)
+        
+        // Log the dialog attempt for debugging
+        web_sys::console::log_2(&"Showing incoming call dialog for:".into(), &from.into());
+        
+        let result = window.confirm_with_message(&message)?;
+        
+        // Log the user's choice
+        web_sys::console::log_2(&"User choice:".into(), &result.into());
+        
+        Ok(result)
     }
 
     pub fn show_notification(&self, message: &str, _notification_type: &str) -> Result<(), JsValue> {

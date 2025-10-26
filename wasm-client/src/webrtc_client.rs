@@ -16,10 +16,12 @@ pub struct WebRTCClient {
     remote_stream: Rc<RefCell<Option<MediaStream>>>,
     is_camera_on: bool,
     is_mic_on: bool,
+    ice_callback_handler: Rc<RefCell<Option<Box<dyn Fn(&str)>>>>,
+    video_chat: Rc<RefCell<crate::video_chat::VideoChat>>, // 追加
 }
 
 impl WebRTCClient {
-    pub async fn new() -> Result<Self, JsValue> {
+    pub async fn new(video_chat: Rc<RefCell<crate::video_chat::VideoChat>>) -> Result<Self, JsValue> {
         // Create RTCConfiguration
         let config = RtcConfiguration::new();
         
@@ -44,17 +46,20 @@ impl WebRTCClient {
             remote_stream: Rc::new(RefCell::new(None)),
             is_camera_on: true,
             is_mic_on: true,
+            ice_callback_handler: Rc::new(RefCell::new(None)),
+            video_chat: video_chat.clone(), // 追加
         };
 
-        client.setup_peer_connection_handlers()?;
+        client.setup_peer_connection_handlers(video_chat)?;
 
         Ok(client)
     }
 
-    fn setup_peer_connection_handlers(&self) -> Result<(), JsValue> {
+    fn setup_peer_connection_handlers(&self, video_chat: Rc<RefCell<crate::video_chat::VideoChat>>) -> Result<(), JsValue> {
         let remote_stream_ref = self.remote_stream.clone();
 
         // OnTrack handler - when remote stream is received
+        let video_chat_clone = video_chat.clone();
         let ontrack_callback = Closure::wrap(Box::new(move |event: web_sys::RtcTrackEvent| {
             console::log_1(&"Received remote track".into());
             
@@ -63,6 +68,10 @@ impl WebRTCClient {
                 if let Ok(stream) = streams.get(0).dyn_into::<MediaStream>() {
                     *remote_stream_ref.borrow_mut() = Some(stream.clone());
                     console::log_1(&"Remote stream received and stored".into());
+                    // 推奨設計: VideoChatのhandle_remote_streamを呼び出す
+                    if let Err(e) = (*video_chat_clone.borrow()).handle_remote_stream(&stream) {
+                        console::error_2(&"Error in handle_remote_stream:".into(), &e);
+                    }
                 }
             }
         }) as Box<dyn FnMut(web_sys::RtcTrackEvent)>);
@@ -71,13 +80,20 @@ impl WebRTCClient {
         ontrack_callback.forget();
 
         // OnICECandidate handler
-        let _pc_clone = self.peer_connection.clone();
+        let ice_callback_handler = self.ice_callback_handler.clone();
         let onicecandidate_callback = Closure::wrap(Box::new(move |event: web_sys::RtcPeerConnectionIceEvent| {
             if let Some(candidate) = event.candidate() {
                 console::log_1(&"New ICE candidate generated".into());
-                // In a real implementation, this would be sent through the signaling channel
-                // For now, we'll log it
                 console::log_2(&"ICE candidate:".into(), &candidate.candidate().into());
+                
+                // ICE候補をシグナリングサーバーに送信
+                if let Some(ref handler) = ice_callback_handler.borrow().as_ref() {
+                    let candidate_str = candidate.candidate();
+                    console::log_1(&"✅ Sending ICE candidate to signaling server".into());
+                    handler(&candidate_str);
+                } else {
+                    console::log_1(&"⚠️ ICE candidate generated but no callback handler set".into());
+                }
             }
         }) as Box<dyn FnMut(web_sys::RtcPeerConnectionIceEvent)>);
         
@@ -114,27 +130,50 @@ impl WebRTCClient {
         // Store local stream
         *self.local_stream.borrow_mut() = Some(media_stream.clone());
 
-        // Add tracks to peer connection
+        // Add tracks to peer connection using JavaScript
         let tracks = media_stream.get_tracks();
+        console::log_2(&"Adding tracks to peer connection, count:".into(), &tracks.length().into());
+        
         for i in 0..tracks.length() {
             let track = tracks.get(i);
-            if let Ok(_media_track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
-                // Note: add_track is not available in web-sys, we'll handle this in JavaScript
-                // For now, we'll just store the stream
-                console::log_1(&"Track added to local stream".into());
+            if let Ok(media_track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
+                console::log_2(&"Adding track:".into(), &media_track.kind().into());
+                
+                // Use JavaScript to add track (workaround for web-sys limitation)
+                let js_code = format!(
+                    "arguments[0].addTrack(arguments[1], arguments[2])"
+                );
+                let function = js_sys::Function::new_with_args(
+                    "pc,track,stream",
+                    &js_code
+                );
+                let _ = function.call3(
+                    &JsValue::NULL,
+                    &self.peer_connection.clone().into(),
+                    &media_track.into(),
+                    &media_stream.clone().into()
+                );
             }
         }
 
+        console::log_1(&"All tracks added to peer connection".into());
         Ok(media_stream)
     }
 
     pub async fn create_offer(&self) -> Result<String, JsValue> {
         console::log_1(&"Creating WebRTC offer with fresh peer connection".into());
         
+        // Check if we have local tracks
+        let senders = self.peer_connection.get_senders();
+        console::log_2(&"Number of senders (tracks) in peer connection:".into(), &senders.length().into());
+        
         let promise = self.peer_connection.create_offer();
         let js_future = JsFuture::from(promise);
         let offer = js_future.await?;
         let offer_desc: RtcSessionDescription = offer.into();
+
+        console::log_2(&"Generated SDP offer length:".into(), &offer_desc.sdp().len().into());
+        console::log_2(&"SDP offer preview (200 chars):".into(), &offer_desc.sdp().chars().take(200).collect::<String>().into());
 
         // Set local description
         let offer_init = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
@@ -186,27 +225,19 @@ impl WebRTCClient {
     }
 
     pub async fn handle_ice_candidate(&self, candidate_str: &str) -> Result<(), JsValue> {
-        // Parse ICE candidate JSON
-        let candidate_data: serde_json::Value = serde_json::from_str(candidate_str)
-            .map_err(|e| JsValue::from_str(&format!("Failed to parse ICE candidate: {}", e)))?;
-
-        if let (Some(candidate), Some(sdp_mid)) = (
-            candidate_data["candidate"].as_str(),
-            candidate_data["sdpMid"].as_str()
-        ) {
-            let ice_candidate_init = RtcIceCandidateInit::new(candidate);
-            ice_candidate_init.set_sdp_mid(Some(sdp_mid));
-            
-            if let Some(sdp_m_line_index) = candidate_data["sdpMLineIndex"].as_u64() {
-                ice_candidate_init.set_sdp_m_line_index(Some(sdp_m_line_index as u16));
-            }
-
-            let ice_candidate = RtcIceCandidate::new(&ice_candidate_init)?;
-            let promise = self.peer_connection.add_ice_candidate_with_opt_rtc_ice_candidate(Some(&ice_candidate));
-            let js_future = JsFuture::from(promise);
-            js_future.await?;
-        }
-
+        console::log_1(&"Processing received ICE candidate".into());
+        console::log_2(&"Candidate string:".into(), &candidate_str.into());
+        
+        // Create ICE candidate from string
+        let ice_candidate_init = RtcIceCandidateInit::new(candidate_str);
+        let ice_candidate = RtcIceCandidate::new(&ice_candidate_init)?;
+        
+        // Add ICE candidate to peer connection
+        let promise = self.peer_connection.add_ice_candidate_with_opt_rtc_ice_candidate(Some(&ice_candidate));
+        let js_future = JsFuture::from(promise);
+        js_future.await?;
+        
+        console::log_1(&"ICE candidate added successfully".into());
         Ok(())
     }
 
@@ -270,5 +301,13 @@ impl WebRTCClient {
 
     pub fn get_remote_stream(&self) -> Option<MediaStream> {
         self.remote_stream.borrow().clone()
+    }
+
+    pub fn set_ice_candidate_callback<F>(&self, callback: F) 
+    where
+        F: Fn(&str) + 'static,
+    {
+        *self.ice_callback_handler.borrow_mut() = Some(Box::new(callback));
+        console::log_1(&"✅ ICE candidate callback handler registered".into());
     }
 }

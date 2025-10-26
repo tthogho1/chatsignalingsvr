@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+  <!-- Cache busting -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>WebRTC Video Chat (WASM)</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -90,12 +96,29 @@
 
   <!-- WASM Module -->
   <script type="module">
-    import init, { VideoChat } from './pkg/wasm_webrtc_client.js';
+    // Add error handling for module loading
+    let init, VideoChat;
+
+    try {
+      // Cache busting for WASM module
+      const cacheBuster = new Date().getTime();
+      const module = await import(`./pkg/wasm_webrtc_client.js?v=${cacheBuster}`);
+      init = module.default;
+      VideoChat = module.VideoChat;
+    } catch (error) {
+      console.error('Failed to load WASM module:', error);
+      document.getElementById('loading').innerHTML =
+        '<div class="error">❌ WASMモジュールの読み込みに失敗しました<br>HTTPサーバーから実行してください</div>';
+      throw error;
+    }
 
     async function run() {
       try {
-        // Initialize WASM module
-        await init();
+        // Initialize WASM module with proper error handling
+        await init().catch(err => {
+          console.error('WASM initialization failed:', err);
+          throw new Error('WASM初期化エラー: ' + err.message);
+        });
 
         // Hide loading indicator
         document.getElementById('loading').style.display = 'none';

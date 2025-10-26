@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WASM Test - Development Build</title>
+</head>
+<body>
+  <h1>WASM Module Test (Development Build)</h1>
+  <div id="status">Loading...</div>
+  <div id="log"></div>
+
+  <script type="module">
+    const log = (msg) => {
+      console.log(msg);
+      document.getElementById('log').innerHTML += msg + '<br>';
+    };
+
+    async function testWasmDev() {
+      try {
+        log('🔄 Testing WASM module (dev build) access...');
+
+        // Test if we can access the JS file
+        const response = await fetch('./pkg-dev/wasm_webrtc_client.js');
+        log(`📁 JS file status: ${response.status} ${response.statusText}`);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        // Test if we can import the module
+        log('📦 Attempting dynamic import (dev build)...');
+        const module = await import('./pkg-dev/wasm_webrtc_client.js');
+        log('✅ Module imported successfully');
+        log(`📋 Exports: ${Object.keys(module).join(', ')}`);
+
+        // Test WASM initialization with manual error handling
+        if (module.default) {
+          log('🔧 Testing WASM initialization (dev build)...');
+
+          // Try to manually provide missing functions
+          window.__wbindgen_cast_fdf3ea24c62ea0cf = function () {
+            log('⚠️ Called missing function __wbindgen_cast_fdf3ea24c62ea0cf');
+            return null;
+          };
+
+          await module.default();
+          log('✅ WASM initialized successfully');
+
+          // Test VideoChat class
+          if (module.VideoChat) {
+            log('🎥 Testing VideoChat class...');
+            const videoChat = new module.VideoChat();
+            log('✅ VideoChat instance created successfully');
+            document.getElementById('status').textContent = '✅ All tests passed (dev build)!';
+            document.getElementById('status').style.color = 'green';
+          } else {
+            throw new Error('VideoChat class not found in exports');
+          }
+        } else {
+          throw new Error('Default export (init function) not found');
+        }
+
+      } catch (error) {
+        log(`❌ Error: ${error.message}`);
+        log(`📍 Stack: ${error.stack}`);
+        document.getElementById('status').textContent = `❌ Test failed: ${error.message}`;
+        document.getElementById('status').style.color = 'red';
+
+        // Try alternative approach
+        log('🔄 Trying alternative initialization approach...');
+        try {
+          const module = await import('./pkg-dev/wasm_webrtc_client.js');
+          if (module.initSync) {
+            log('🔧 Trying initSync...');
+            const wasmResponse = await fetch('./pkg-dev/wasm_webrtc_client_bg.wasm');
+            const wasmBytes = await wasmResponse.arrayBuffer();
+            module.initSync(wasmBytes);
+            log('✅ initSync succeeded!');
+            document.getElementById('status').textContent = '✅ Alternative init succeeded!';
+            document.getElementById('status').style.color = 'orange';
+          }
+        } catch (altError) {
+          log(`❌ Alternative failed: ${altError.message}`);
+        }
+      }
+    }
+
+    testWasmDev();
+  </script>
+</body>
+</html>

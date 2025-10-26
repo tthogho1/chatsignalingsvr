@@ -406,14 +406,22 @@ impl WebSocketServerConnection {
                     "Processing text message from client"
                 );
                 
+                // デバッグ用：受信したJSONの詳細をログ出力
+                debug!(
+                    client_id = %client_id,
+                    raw_message = %text,
+                    "Raw JSON message received"
+                );
+                
                 // Parse JSON message
                 let parsed_message: crate::models::message::Message = serde_json::from_str(&text)
                     .map_err(|e| {
-                        warn!(
+                        error!(
                             client_id = %client_id,
                             error = %e,
-                            message_preview = %text.chars().take(100).collect::<String>(),
-                            "Failed to parse JSON message"
+                            message_preview = %text.chars().take(200).collect::<String>(),
+                            full_message = %text,
+                            "Failed to parse JSON message - FULL DETAILS"
                         );
                         crate::models::error::ConnectionError::InvalidMessage(
                             format!("Failed to parse JSON message: {}", e)
@@ -642,7 +650,7 @@ impl WebSocketServerConnection {
         use crate::models::message::{Message, MessageType};
 
         // Create error message
-        let error_message = Message::new(
+        let error_message = Message::new_simple(
             None, // System message, no sender
             MessageType::TextChat {
                 target_user_id: None,

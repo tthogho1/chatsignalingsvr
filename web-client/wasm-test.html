@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WASM Test - Simple</title>
+</head>
+<body>
+  <h1>WASM Module Test</h1>
+  <div id="status">Loading...</div>
+  <div id="log"></div>
+
+  <script type="module">
+    const log = (msg) => {
+      console.log(msg);
+      document.getElementById('log').innerHTML += msg + '<br>';
+    };
+
+    async function testWasm() {
+      try {
+        log('🔄 Testing WASM module access...');
+
+        // Test if we can access the JS file
+        const response = await fetch('./pkg/wasm_webrtc_client.js');
+        log(`📁 JS file status: ${response.status} ${response.statusText}`);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        // Test if we can import the module
+        log('📦 Attempting dynamic import...');
+        const module = await import('./pkg/wasm_webrtc_client.js');
+        log('✅ Module imported successfully');
+        log(`📋 Exports: ${Object.keys(module).join(', ')}`);
+
+        // Test WASM initialization
+        if (module.default) {
+          log('🔧 Testing WASM initialization...');
+          await module.default();
+          log('✅ WASM initialized successfully');
+
+          // Test VideoChat class
+          if (module.VideoChat) {
+            log('🎥 Testing VideoChat class...');
+            const videoChat = new module.VideoChat();
+            log('✅ VideoChat instance created successfully');
+            document.getElementById('status').textContent = '✅ All tests passed!';
+            document.getElementById('status').style.color = 'green';
+          } else {
+            throw new Error('VideoChat class not found in exports');
+          }
+        } else {
+          throw new Error('Default export (init function) not found');
+        }
+
+      } catch (error) {
+        log(`❌ Error: ${error.message}`);
+        log(`📍 Stack: ${error.stack}`);
+        document.getElementById('status').textContent = `❌ Test failed: ${error.message}`;
+        document.getElementById('status').style.color = 'red';
+      }
+    }
+
+    testWasm();
+  </script>
+</body>
+</html>

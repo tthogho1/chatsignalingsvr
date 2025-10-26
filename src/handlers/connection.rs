@@ -167,8 +167,28 @@ impl ConnectionManager {
         );
         None
     }
+    
+    /// Find username by client ID
+    pub async fn find_username_by_client_id(&self, client_id: &ClientId) -> Option<String> {
+        let clients = self.clients.read().await;
+        if let Some(client) = clients.get(client_id) {
+            if let Some(username) = &client.username {
+                debug!(
+                    client_id = %client_id,
+                    username = %username,
+                    "Found username by client ID"
+                );
+                return Some(username.clone());
+            }
+        }
+        debug!(
+            client_id = %client_id,
+            "Username not found for client ID"
+        );
+        None
+    }
 
-    /// Update a client's username
+    /// Update client username
     #[instrument(skip(self), fields(client_id = %client_id, username = %username))]
     pub async fn update_client_username(&self, client_id: &ClientId, username: String) -> bool {
         let mut clients = self.clients.write().await;
@@ -456,7 +476,7 @@ mod tests {
             target_user_id: None,
             content: "Test message".to_string(),
         };
-        let message = Message::new(Some("sender".to_string()), message_type);
+        let message = Message::new_simple(Some("sender".to_string()), message_type);
         
         client.sender.send(message.clone()).unwrap();
         let received_message = receiver.recv().await.unwrap();
@@ -543,7 +563,7 @@ mod tests {
                 target_user_id: None,
                 content: format!("Message for {}", client_id),
             };
-            let message = Message::new(Some("sender".to_string()), message_type);
+            let message = Message::new_simple(Some("sender".to_string()), message_type);
             
             client.sender.send(message.clone()).unwrap();
             let received_message = receiver.recv().await.unwrap();
@@ -570,7 +590,7 @@ mod tests {
             target_user_id: None,
             content: "Test message".to_string(),
         };
-        let message = Message::new(Some("sender".to_string()), message_type);
+        let message = Message::new_simple(Some("sender".to_string()), message_type);
         
         client.sender.send(message.clone()).unwrap();
         let received_message = receiver.recv().await.unwrap();

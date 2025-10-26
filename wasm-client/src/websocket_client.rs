@@ -96,11 +96,15 @@ impl WebSocketClient {
                             MessageType::TextChat { target_user_id, content } => {
                                 let from = message.sender_id.clone().unwrap_or_else(|| "system".to_string());
                                 let is_broadcast = target_user_id.is_none();
-                                let vc = video_chat_clone.borrow_mut();
-                                let _ = vc.handle_message(&from, content, is_broadcast);
+                                {
+                                    let vc = video_chat_clone.borrow_mut();
+                                    let _ = vc.handle_message(&from, content, is_broadcast);
+                                }
                             }
                             MessageType::WebRTCSignaling { target_user_id: _, signaling_data } => {
-                                let sender = message.sender_id.clone().unwrap_or_default();
+                                let sender = message.sender_username.clone()
+                                    .or_else(|| message.sender_id.clone())
+                                    .unwrap_or_default();
                                 let sig_type_owned = signaling_data.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                 
                                 // 受信したWebRTCメッセージの詳細ログ出力
@@ -144,14 +148,17 @@ impl WebSocketClient {
                                 };
                                 let video_chat_async = video_chat_clone.clone();
                                 wasm_bindgen_futures::spawn_local(async move {
-                                    let mut vc = video_chat_async.borrow_mut();
-                                    let _ = vc.handle_signaling_message(&sender, &sig_type_owned, &data_owned).await;
+                                    // RefCellから一時的に値を取り出し、clone_handleで複製して使う
+                                    let mut vc_temp = video_chat_async.borrow().clone_handle();
+                                    let _ = vc_temp.handle_signaling_message(&sender, &sig_type_owned, &data_owned).await;
                                 });
                             }
                             MessageType::GenericMessage { target_user_id: _, content } => {
                                 let from = message.sender_id.clone().unwrap_or_else(|| "system".to_string());
-                                let vc = video_chat_clone.borrow_mut();
-                                let _ = vc.handle_message(&from, content, false);
+                                {
+                                    let vc = video_chat_clone.borrow_mut();
+                                    let _ = vc.handle_message(&from, content, false);
+                                }
                             }
                         }
                     }
@@ -224,6 +231,30 @@ impl WebSocketClient {
         self.send_message(&msg).await
     }
 
+    /// Send ICE candidate to remote peer
+    pub async fn send_ice_candidate(&self, target_user: &str, candidate: &str) -> Result<(), JsValue> {
+        web_sys::console::group_1(&"=== Sending ICE Candidate ===".into());
+        web_sys::console::log_2(&"From:".into(), &self.username.clone().into());
+        web_sys::console::log_2(&"To:".into(), &target_user.into());
+        web_sys::console::log_2(&"Candidate:".into(), &candidate.into());
+        
+        let signaling_data = serde_json::json!({
+            "type": "ice-candidate",
+            "candidate": candidate
+        });
+        
+        let msg = Message::new_webrtc(
+            Some(self.username.clone()),
+            target_user.to_string(),
+            signaling_data.clone(),
+        );
+        
+        web_sys::console::log_2(&"ICE Candidate Data:".into(), &format!("{}", signaling_data).into());
+        web_sys::console::group_end();
+        
+        self.send_message(&msg).await
+    }
+
     async fn send_message(&self, message: &Message) -> Result<(), JsValue> {
         // Detailed logging for message being sent
         web_sys::console::group_1(&"=== Sending Message to Server ===".into());
@@ -232,28 +263,75 @@ impl WebSocketClient {
         web_sys::console::log_2(&"Message Type:".into(), &format!("{:?}", message.message_type).into());
         web_sys::console::log_2(&"Timestamp:".into(), &message.timestamp.clone().into());
         
-        match serde_json::to_string(message) {
-            Ok(json_str) => {
-                web_sys::console::log_2(&"JSON Payload:".into(), &json_str.clone().into());
-                web_sys::console::log_2(&"WebSocket Ready State:".into(), &self.ws.ready_state().into());
-                
-                match self.ws.send_with_str(&json_str) {
-                    Ok(_) => {
-                        web_sys::console::log_1(&"✅ Message sent successfully".into());
-                        web_sys::console::group_end();
-                        Ok(())
+        // Message構造体の内部構造を詳細ログ出力
+        web_sys::console::log_2(&"Message Struct Debug:".into(), &format!("{:#?}", message).into());
+        
+        // サーバーの期待する形式に手動で変換
+        let json_value = match &message.message_type {
+            MessageType::TextChat { target_user_id, content } => {
+                serde_json::json!({
+                    "id": message.id,
+                    "sender_id": message.sender_id,
+                    "timestamp": message.timestamp,
+                    "message_type": {
+                        "TextChat": {
+                            "target_user_id": target_user_id,
+                            "content": content
+                        }
                     }
-                    Err(e) => {
-                        web_sys::console::error_1(&format!("❌ Failed to send message: {:?}", e).into());
-                        web_sys::console::group_end();
-                        Err(e)
+                })
+            },
+            MessageType::WebRTCSignaling { target_user_id, signaling_data } => {
+                serde_json::json!({
+                    "id": message.id,
+                    "sender_id": message.sender_id,
+                    "timestamp": message.timestamp,
+                    "message_type": {
+                        "WebRTCSignaling": {
+                            "target_user_id": target_user_id,
+                            "signaling_data": signaling_data
+                        }
                     }
-                }
+                })
+            },
+            MessageType::GenericMessage { target_user_id, content } => {
+                serde_json::json!({
+                    "id": message.id,
+                    "sender_id": message.sender_id,
+                    "timestamp": message.timestamp,
+                    "message_type": {
+                        "GenericMessage": {
+                            "target_user_id": target_user_id,
+                            "content": content
+                        }
+                    }
+                })
+            }
+        };
+        
+        let json_str = json_value.to_string();
+        web_sys::console::log_2(&"JSON String Length:".into(), &json_str.len().into());
+        web_sys::console::log_2(&"Manually Constructed JSON:".into(), &json_str.clone().into());
+        web_sys::console::log_2(&"WebSocket Ready State:".into(), &self.ws.ready_state().into());
+        
+        // JSON構造の詳細確認
+        if let Ok(parsed_back) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            web_sys::console::log_2(&"JSON Validation:".into(), &"✅ JSON is valid".into());
+            web_sys::console::log_2(&"JSON Structure:".into(), &format!("{:#}", parsed_back).into());
+        } else {
+            web_sys::console::error_1(&"❌ Generated JSON is invalid!".into());
+        }
+        
+        match self.ws.send_with_str(&json_str) {
+            Ok(_) => {
+                web_sys::console::log_1(&"✅ Message sent successfully".into());
+                web_sys::console::group_end();
+                Ok(())
             }
             Err(e) => {
-                web_sys::console::error_1(&format!("❌ Failed to serialize message: {}", e).into());
+                web_sys::console::error_1(&format!("❌ Failed to send message: {:?}", e).into());
                 web_sys::console::group_end();
-                Err(JsValue::from_str(&format!("Failed to serialize message: {}", e)))
+                Err(e)
             }
         }
     }

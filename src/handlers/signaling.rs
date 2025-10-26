@@ -52,8 +52,11 @@ impl SignalingHandler {
             signaling_data,
         };
         
+        // Get sender's username
+        let sender_username = self.connection_manager.find_username_by_client_id(&sender_id).await;
+        
         // Create message with sender identification
-        let message = Message::new(Some(sender_id.clone()), message_type);
+        let message = Message::new(Some(sender_id.clone()), sender_username, message_type);
         let message_id = message.id.clone(); // IDを事前にコピー
 
         debug!(

@@ -25,15 +25,28 @@ pub enum MessageType {
 pub struct Message {
     pub id: MessageId,
     pub sender_id: Option<ClientId>,
+    pub sender_username: Option<String>,
     pub timestamp: DateTime<Utc>,
     pub message_type: MessageType,
 }
 
 impl Message {
-    pub fn new(sender_id: Option<ClientId>, message_type: MessageType) -> Self {
+    pub fn new(sender_id: Option<ClientId>, sender_username: Option<String>, message_type: MessageType) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             sender_id,
+            sender_username,
+            timestamp: Utc::now(),
+            message_type,
+        }
+    }
+    
+    // Backward compatibility method for existing code
+    pub fn new_simple(sender_id: Option<ClientId>, message_type: MessageType) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            sender_id,
+            sender_username: None,
             timestamp: Utc::now(),
             message_type,
         }
@@ -53,7 +66,7 @@ mod tests {
             content: "Hello, World!".to_string(),
         };
 
-        let message = Message::new(sender_id.clone(), message_type.clone());
+        let message = Message::new_simple(sender_id.clone(), message_type.clone());
 
         assert_eq!(message.sender_id, sender_id);
         assert!(matches!(message.message_type, MessageType::TextChat { .. }));
@@ -67,7 +80,7 @@ mod tests {
             target_user_id: Some("user123".to_string()),
             content: "Test message".to_string(),
         };
-        let message = Message::new(Some("sender456".to_string()), message_type);
+        let message = Message::new_simple(Some("sender456".to_string()), message_type);
 
         let serialized = serde_json::to_string(&message).expect("Failed to serialize message");
         let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize message");
@@ -92,7 +105,7 @@ mod tests {
             target_user_id: None,
             content: "Broadcast message".to_string(),
         };
-        let message = Message::new(Some("broadcaster".to_string()), message_type);
+        let message = Message::new_simple(Some("broadcaster".to_string()), message_type);
 
         let serialized = serde_json::to_string(&message).expect("Failed to serialize broadcast message");
         let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize broadcast message");
@@ -116,7 +129,7 @@ mod tests {
             target_user_id: "peer123".to_string(),
             signaling_data: signaling_data.clone(),
         };
-        let message = Message::new(Some("caller456".to_string()), message_type);
+        let message = Message::new_simple(Some("caller456".to_string()), message_type);
 
         let serialized = serde_json::to_string(&message).expect("Failed to serialize WebRTC message");
         let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize WebRTC message");
@@ -136,7 +149,7 @@ mod tests {
             target_user_id: "target789".to_string(),
             content: "Custom command data".to_string(),
         };
-        let message = Message::new(Some("sender123".to_string()), message_type);
+        let message = Message::new_simple(Some("sender123".to_string()), message_type);
 
         let serialized = serde_json::to_string(&message).expect("Failed to serialize generic message");
         let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize generic message");
@@ -156,7 +169,7 @@ mod tests {
             target_user_id: Some("user123".to_string()),
             content: "System message".to_string(),
         };
-        let message = Message::new(None, message_type);
+        let message = Message::new_simple(None, message_type);
 
         assert!(message.sender_id.is_none());
 
@@ -196,7 +209,7 @@ mod tests {
         ];
 
         for message_type in variants {
-            let message = Message::new(Some("sender".to_string()), message_type);
+            let message = Message::new_simple(Some("sender".to_string()), message_type);
             let serialized = serde_json::to_string(&message).expect("Failed to serialize message variant");
             let _deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize message variant");
         }
