@@ -1,4 +1,4 @@
-use tracing::{Level, info};
+use tracing::{info, Level};
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
@@ -12,13 +12,16 @@ use crate::config::ServerConfig;
 pub fn init_logging(config: &ServerConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Parse log level from config
     let log_level = parse_log_level(&config.log_level)?;
-    
+
     // Create environment filter with the configured log level
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| {
-            // If no RUST_LOG env var is set, use the configured log level
-            EnvFilter::new(format!("{}={}", env!("CARGO_PKG_NAME").replace('-', "_"), log_level))
-        });
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        // If no RUST_LOG env var is set, use the configured log level
+        EnvFilter::new(format!(
+            "{}={}",
+            env!("CARGO_PKG_NAME").replace('-', "_"),
+            log_level
+        ))
+    });
 
     // Initialize tracing subscriber with structured JSON logging
     tracing_subscriber::registry()
@@ -31,7 +34,7 @@ pub fn init_logging(config: &ServerConfig) -> Result<(), Box<dyn std::error::Err
                 .with_file(true)
                 .with_line_number(true)
                 .with_span_events(FmtSpan::CLOSE)
-                .json()
+                .json(),
         )
         .try_init()?;
 
@@ -71,11 +74,11 @@ mod tests {
         assert!(matches!(parse_log_level("info").unwrap(), Level::INFO));
         assert!(matches!(parse_log_level("warn").unwrap(), Level::WARN));
         assert!(matches!(parse_log_level("error").unwrap(), Level::ERROR));
-        
+
         // Test case insensitive
         assert!(matches!(parse_log_level("INFO").unwrap(), Level::INFO));
         assert!(matches!(parse_log_level("Debug").unwrap(), Level::DEBUG));
-        
+
         // Test invalid level
         assert!(parse_log_level("invalid").is_err());
     }

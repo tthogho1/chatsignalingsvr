@@ -31,7 +31,11 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn new(sender_id: Option<ClientId>, sender_username: Option<String>, message_type: MessageType) -> Self {
+    pub fn new(
+        sender_id: Option<ClientId>,
+        sender_username: Option<String>,
+        message_type: MessageType,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             sender_id,
@@ -40,7 +44,7 @@ impl Message {
             message_type,
         }
     }
-    
+
     // Backward compatibility method for existing code
     pub fn new_simple(sender_id: Option<ClientId>, message_type: MessageType) -> Self {
         Self {
@@ -83,15 +87,24 @@ mod tests {
         let message = Message::new_simple(Some("sender456".to_string()), message_type);
 
         let serialized = serde_json::to_string(&message).expect("Failed to serialize message");
-        let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize message");
+        let deserialized: Message =
+            serde_json::from_str(&serialized).expect("Failed to deserialize message");
 
         assert_eq!(message.id, deserialized.id);
         assert_eq!(message.sender_id, deserialized.sender_id);
         assert_eq!(message.timestamp, deserialized.timestamp);
-        
+
         match (&message.message_type, &deserialized.message_type) {
-            (MessageType::TextChat { target_user_id: t1, content: c1 }, 
-             MessageType::TextChat { target_user_id: t2, content: c2 }) => {
+            (
+                MessageType::TextChat {
+                    target_user_id: t1,
+                    content: c1,
+                },
+                MessageType::TextChat {
+                    target_user_id: t2,
+                    content: c2,
+                },
+            ) => {
                 assert_eq!(t1, t2);
                 assert_eq!(c1, c2);
             }
@@ -107,11 +120,16 @@ mod tests {
         };
         let message = Message::new_simple(Some("broadcaster".to_string()), message_type);
 
-        let serialized = serde_json::to_string(&message).expect("Failed to serialize broadcast message");
-        let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize broadcast message");
+        let serialized =
+            serde_json::to_string(&message).expect("Failed to serialize broadcast message");
+        let deserialized: Message =
+            serde_json::from_str(&serialized).expect("Failed to deserialize broadcast message");
 
         match deserialized.message_type {
-            MessageType::TextChat { target_user_id: None, content } => {
+            MessageType::TextChat {
+                target_user_id: None,
+                content,
+            } => {
                 assert_eq!(content, "Broadcast message");
             }
             _ => panic!("Expected TextChat with None target_user_id"),
@@ -131,11 +149,16 @@ mod tests {
         };
         let message = Message::new_simple(Some("caller456".to_string()), message_type);
 
-        let serialized = serde_json::to_string(&message).expect("Failed to serialize WebRTC message");
-        let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize WebRTC message");
+        let serialized =
+            serde_json::to_string(&message).expect("Failed to serialize WebRTC message");
+        let deserialized: Message =
+            serde_json::from_str(&serialized).expect("Failed to deserialize WebRTC message");
 
         match deserialized.message_type {
-            MessageType::WebRTCSignaling { target_user_id, signaling_data: data } => {
+            MessageType::WebRTCSignaling {
+                target_user_id,
+                signaling_data: data,
+            } => {
                 assert_eq!(target_user_id, "peer123");
                 assert_eq!(data, signaling_data);
             }
@@ -151,11 +174,16 @@ mod tests {
         };
         let message = Message::new_simple(Some("sender123".to_string()), message_type);
 
-        let serialized = serde_json::to_string(&message).expect("Failed to serialize generic message");
-        let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize generic message");
+        let serialized =
+            serde_json::to_string(&message).expect("Failed to serialize generic message");
+        let deserialized: Message =
+            serde_json::from_str(&serialized).expect("Failed to deserialize generic message");
 
         match deserialized.message_type {
-            MessageType::GenericMessage { target_user_id, content } => {
+            MessageType::GenericMessage {
+                target_user_id,
+                content,
+            } => {
                 assert_eq!(target_user_id, "target789");
                 assert_eq!(content, "Custom command data");
             }
@@ -173,8 +201,10 @@ mod tests {
 
         assert!(message.sender_id.is_none());
 
-        let serialized = serde_json::to_string(&message).expect("Failed to serialize message with no sender");
-        let deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize message with no sender");
+        let serialized =
+            serde_json::to_string(&message).expect("Failed to serialize message with no sender");
+        let deserialized: Message = serde_json::from_str(&serialized)
+            .expect("Failed to deserialize message with no sender");
 
         assert!(deserialized.sender_id.is_none());
     }
@@ -210,8 +240,10 @@ mod tests {
 
         for message_type in variants {
             let message = Message::new_simple(Some("sender".to_string()), message_type);
-            let serialized = serde_json::to_string(&message).expect("Failed to serialize message variant");
-            let _deserialized: Message = serde_json::from_str(&serialized).expect("Failed to deserialize message variant");
+            let serialized =
+                serde_json::to_string(&message).expect("Failed to serialize message variant");
+            let _deserialized: Message =
+                serde_json::from_str(&serialized).expect("Failed to deserialize message variant");
         }
     }
 }

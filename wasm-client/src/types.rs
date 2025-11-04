@@ -28,23 +28,37 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn new_text(sender: Option<String>, target_user_id: Option<String>, content: String) -> Self {
+    pub fn new_text(
+        sender: Option<String>,
+        target_user_id: Option<String>,
+        content: String,
+    ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             sender_id: sender,
             sender_username: None, // Will be filled by server
             timestamp: js_sys::Date::new_0().to_iso_string().into(),
-            message_type: MessageType::TextChat { target_user_id, content },
+            message_type: MessageType::TextChat {
+                target_user_id,
+                content,
+            },
         }
     }
 
-    pub fn new_webrtc(sender: Option<String>, target_user_id: String, signaling_data: serde_json::Value) -> Self {
+    pub fn new_webrtc(
+        sender: Option<String>,
+        target_user_id: String,
+        signaling_data: serde_json::Value,
+    ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             sender_id: sender,
             sender_username: None, // Will be filled by server
             timestamp: js_sys::Date::new_0().to_iso_string().into(),
-            message_type: MessageType::WebRTCSignaling { target_user_id, signaling_data },
+            message_type: MessageType::WebRTCSignaling {
+                target_user_id,
+                signaling_data,
+            },
         }
     }
 
@@ -54,7 +68,10 @@ impl Message {
             sender_id: sender,
             sender_username: None, // Will be filled by server
             timestamp: js_sys::Date::new_0().to_iso_string().into(),
-            message_type: MessageType::GenericMessage { target_user_id, content },
+            message_type: MessageType::GenericMessage {
+                target_user_id,
+                content,
+            },
         }
     }
 }

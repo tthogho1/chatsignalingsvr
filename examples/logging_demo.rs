@@ -1,6 +1,6 @@
-use websocket_chat_signaling_server::{config::ServerConfig, logging};
-use tracing::{info, debug, warn, error, trace};
 use std::env;
+use tracing::{debug, error, info, trace, warn};
+use websocket_chat_signaling_server::{config::ServerConfig, logging};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load configuration
     let config = ServerConfig::from_env()?;
-    
+
     // Initialize structured logging
     logging::init_logging(&config);
 
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Simulate client connection logging
     let client_id = "demo-client-123";
     let peer_addr = "192.168.1.100:54321";
-    
+
     debug!(
         client_id = %client_id,
         peer_address = %peer_addr,

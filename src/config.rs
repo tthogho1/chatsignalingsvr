@@ -39,7 +39,7 @@ impl ServerConfig {
 
     fn parse_bind_address() -> Result<IpAddr, ServerError> {
         let addr_str = env::var("SERVER_BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1".to_string());
-        
+
         IpAddr::from_str(&addr_str).map_err(|e| {
             ServerError::ConfigError(format!("Invalid bind address '{}': {}", addr_str, e))
         })
@@ -47,40 +47,52 @@ impl ServerConfig {
 
     fn parse_port() -> Result<u16, ServerError> {
         let port_str = env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
-        
-        port_str.parse::<u16>().map_err(|e| {
-            ServerError::ConfigError(format!("Invalid port '{}': {}", port_str, e))
-        }).and_then(|port| {
-            if port == 0 {
-                Err(ServerError::ConfigError("Port cannot be 0".to_string()))
-            } else {
-                Ok(port)
-            }
-        })
+
+        port_str
+            .parse::<u16>()
+            .map_err(|e| ServerError::ConfigError(format!("Invalid port '{}': {}", port_str, e)))
+            .and_then(|port| {
+                if port == 0 {
+                    Err(ServerError::ConfigError("Port cannot be 0".to_string()))
+                } else {
+                    Ok(port)
+                }
+            })
     }
 
     fn parse_max_connections() -> Result<usize, ServerError> {
         let max_conn_str = env::var("MAX_CONNECTIONS").unwrap_or_else(|_| "1000".to_string());
-        
-        max_conn_str.parse::<usize>().map_err(|e| {
-            ServerError::ConfigError(format!("Invalid max_connections '{}': {}", max_conn_str, e))
-        }).and_then(|max_conn| {
-            if max_conn == 0 {
-                Err(ServerError::ConfigError("max_connections cannot be 0".to_string()))
-            } else {
-                Ok(max_conn)
-            }
-        })
+
+        max_conn_str
+            .parse::<usize>()
+            .map_err(|e| {
+                ServerError::ConfigError(format!(
+                    "Invalid max_connections '{}': {}",
+                    max_conn_str, e
+                ))
+            })
+            .and_then(|max_conn| {
+                if max_conn == 0 {
+                    Err(ServerError::ConfigError(
+                        "max_connections cannot be 0".to_string(),
+                    ))
+                } else {
+                    Ok(max_conn)
+                }
+            })
     }
 
     fn parse_log_level() -> String {
         let log_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
-        
+
         // Validate log level
         match log_level.to_lowercase().as_str() {
             "trace" | "debug" | "info" | "warn" | "error" => log_level.to_lowercase(),
             _ => {
-                eprintln!("Warning: Invalid log level '{}', using 'info' as default", log_level);
+                eprintln!(
+                    "Warning: Invalid log level '{}', using 'info' as default",
+                    log_level
+                );
                 "info".to_string()
             }
         }
@@ -101,8 +113,8 @@ impl Default for ServerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
     use serial_test::serial;
+    use std::env;
 
     #[test]
     fn test_default_config() {
@@ -145,7 +157,7 @@ mod tests {
         env::remove_var("SERVER_PORT");
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("LOG_LEVEL");
-        
+
         env::set_var("SERVER_BIND_ADDRESS", "0.0.0.0");
         env::set_var("SERVER_PORT", "9090");
         env::set_var("MAX_CONNECTIONS", "500");
@@ -172,15 +184,18 @@ mod tests {
         env::remove_var("SERVER_PORT");
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("LOG_LEVEL");
-        
+
         env::set_var("SERVER_PORT", "8080");
         env::set_var("SERVER_BIND_ADDRESS", "invalid-address");
-        
+
         let result = ServerConfig::from_env();
         assert!(result.is_err());
         let error_message = result.unwrap_err().to_string();
-        assert!(error_message.contains("Invalid bind address"), 
-                "Expected 'Invalid bind address' in error message, got: {}", error_message);
+        assert!(
+            error_message.contains("Invalid bind address"),
+            "Expected 'Invalid bind address' in error message, got: {}",
+            error_message
+        );
 
         env::remove_var("SERVER_BIND_ADDRESS");
         env::remove_var("SERVER_PORT");
@@ -194,9 +209,9 @@ mod tests {
         env::remove_var("SERVER_PORT");
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("LOG_LEVEL");
-        
+
         env::set_var("SERVER_PORT", "invalid-port");
-        
+
         let result = ServerConfig::from_env();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid port"));
@@ -212,9 +227,9 @@ mod tests {
         env::remove_var("SERVER_PORT");
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("LOG_LEVEL");
-        
+
         env::set_var("SERVER_PORT", "0");
-        
+
         let result = ServerConfig::from_env();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Port cannot be 0"));
@@ -230,13 +245,16 @@ mod tests {
         env::remove_var("SERVER_PORT");
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("LOG_LEVEL");
-        
+
         env::set_var("SERVER_PORT", "8080");
         env::set_var("MAX_CONNECTIONS", "invalid-number");
-        
+
         let result = ServerConfig::from_env();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid max_connections"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid max_connections"));
 
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("SERVER_PORT");
@@ -250,13 +268,16 @@ mod tests {
         env::remove_var("SERVER_PORT");
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("LOG_LEVEL");
-        
+
         env::set_var("SERVER_PORT", "8080");
         env::set_var("MAX_CONNECTIONS", "0");
-        
+
         let result = ServerConfig::from_env();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("max_connections cannot be 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("max_connections cannot be 0"));
 
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("SERVER_PORT");
@@ -270,10 +291,10 @@ mod tests {
         env::remove_var("SERVER_PORT");
         env::remove_var("MAX_CONNECTIONS");
         env::remove_var("LOG_LEVEL");
-        
+
         env::set_var("SERVER_PORT", "8080");
         env::set_var("LOG_LEVEL", "invalid-level");
-        
+
         let config = ServerConfig::from_env().unwrap();
         assert_eq!(config.log_level, "info");
 
@@ -285,14 +306,14 @@ mod tests {
     #[serial]
     fn test_valid_log_levels() {
         let valid_levels = ["trace", "debug", "info", "warn", "error"];
-        
+
         for level in &valid_levels {
             // Clear ALL environment variables first, then set test values
             env::remove_var("SERVER_BIND_ADDRESS");
             env::remove_var("SERVER_PORT");
             env::remove_var("MAX_CONNECTIONS");
             env::remove_var("LOG_LEVEL");
-            
+
             env::set_var("SERVER_PORT", "8080");
             env::set_var("LOG_LEVEL", level);
             let config = ServerConfig::from_env().unwrap();

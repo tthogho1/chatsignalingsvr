@@ -1,11 +1,11 @@
+use clap::{Arg, Command};
+use futures_util::{SinkExt, StreamExt};
+use serde_json::json;
 use std::io::{self, Write};
 use std::time::Duration;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
-use futures_util::{SinkExt, StreamExt};
-use serde_json::json;
 use websocket_chat_signaling_server::models::message::{Message, MessageType};
-use clap::{Arg, Command};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short('s')
                 .value_name("URL")
                 .help("WebSocket server URL")
-                .default_value("ws://127.0.0.1:8080")
+                .default_value("ws://127.0.0.1:8080"),
         )
         .arg(
             Arg::new("client-id")
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short('c')
                 .value_name("ID")
                 .help("Client identifier")
-                .default_value("example_client")
+                .default_value("example_client"),
         )
         .arg(
             Arg::new("mode")
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .value_name("MODE")
                 .help("Client mode: interactive, demo, or test")
                 .default_value("interactive")
-                .value_parser(["interactive", "demo", "test"])
+                .value_parser(["interactive", "demo", "test"]),
         )
         .get_matches();
 
@@ -75,8 +75,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Interactive mode - user can type messages and commands
 async fn run_interactive_mode(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
-    mut read: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
+    mut read: futures_util::stream::SplitStream<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    >,
     client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🎮 Interactive Mode");
@@ -94,16 +103,14 @@ async fn run_interactive_mode(
         let mut read = read;
         while let Some(msg) = read.next().await {
             match msg {
-                Ok(WsMessage::Text(text)) => {
-                    match serde_json::from_str::<Message>(&text) {
-                        Ok(parsed_msg) => {
-                            println!("📨 Received: {:?}", parsed_msg);
-                        }
-                        Err(_) => {
-                            println!("📨 Raw message: {}", text);
-                        }
+                Ok(WsMessage::Text(text)) => match serde_json::from_str::<Message>(&text) {
+                    Ok(parsed_msg) => {
+                        println!("📨 Received: {:?}", parsed_msg);
                     }
-                }
+                    Err(_) => {
+                        println!("📨 Raw message: {}", text);
+                    }
+                },
                 Ok(WsMessage::Close(_)) => {
                     println!("🔌 Server closed connection");
                     break;
@@ -172,8 +179,17 @@ async fn run_interactive_mode(
 
 /// Demo mode - automatically sends various types of messages
 async fn run_demo_mode(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
-    mut read: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
+    mut read: futures_util::stream::SplitStream<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    >,
     client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🎭 Demo Mode - Sending example messages");
@@ -183,16 +199,14 @@ async fn run_demo_mode(
     let read_handle = tokio::spawn(async move {
         while let Some(msg) = read.next().await {
             match msg {
-                Ok(WsMessage::Text(text)) => {
-                    match serde_json::from_str::<Message>(&text) {
-                        Ok(parsed_msg) => {
-                            println!("📨 Received: {:?}", parsed_msg);
-                        }
-                        Err(_) => {
-                            println!("📨 Raw message: {}", text);
-                        }
+                Ok(WsMessage::Text(text)) => match serde_json::from_str::<Message>(&text) {
+                    Ok(parsed_msg) => {
+                        println!("📨 Received: {:?}", parsed_msg);
                     }
-                }
+                    Err(_) => {
+                        println!("📨 Raw message: {}", text);
+                    }
+                },
                 Ok(WsMessage::Close(_)) => {
                     println!("🔌 Server closed connection");
                     break;
@@ -208,11 +222,22 @@ async fn run_demo_mode(
 
     // Demo sequence
     println!("1️⃣ Sending broadcast message...");
-    send_broadcast_message(write, client_id, "Hello everyone! This is a demo broadcast.").await?;
+    send_broadcast_message(
+        write,
+        client_id,
+        "Hello everyone! This is a demo broadcast.",
+    )
+    .await?;
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     println!("2️⃣ Sending direct message...");
-    send_direct_message(write, client_id, "demo_target", "Hello demo_target! This is a direct message.").await?;
+    send_direct_message(
+        write,
+        client_id,
+        "demo_target",
+        "Hello demo_target! This is a direct message.",
+    )
+    .await?;
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     println!("3️⃣ Sending WebRTC offer...");
@@ -243,8 +268,17 @@ async fn run_demo_mode(
 
 /// Test mode - sends messages and validates responses
 async fn run_test_mode(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
-    mut read: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
+    mut read: futures_util::stream::SplitStream<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    >,
     client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 Test Mode - Validating server functionality");
@@ -289,7 +323,8 @@ async fn run_test_mode(
     // Test 4: Send generic message
     test_count += 1;
     println!("Test {}: Generic message", test_count);
-    let result = send_generic_message(write, client_id, "generic_test_target", "test_command").await;
+    let result =
+        send_generic_message(write, client_id, "generic_test_target", "test_command").await;
     if result.is_ok() {
         passed_count += 1;
         println!("✅ PASS");
@@ -320,12 +355,18 @@ async fn run_test_mode(
             }
         }
     } else {
-        println!("❌ FAIL: Could not send invalid message: {:?}", result.err());
+        println!(
+            "❌ FAIL: Could not send invalid message: {:?}",
+            result.err()
+        );
     }
 
     println!();
-    println!("🏁 Test Results: {}/{} tests passed", passed_count, test_count);
-    
+    println!(
+        "🏁 Test Results: {}/{} tests passed",
+        passed_count, test_count
+    );
+
     if passed_count == test_count {
         println!("🎉 All tests passed!");
     } else {
@@ -338,7 +379,12 @@ async fn run_test_mode(
 // Helper functions for handling commands
 
 async fn handle_direct_command(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
     client_id: &str,
     args: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -347,15 +393,20 @@ async fn handle_direct_command(
         println!("Usage: /direct <target_id> <message>");
         return Ok(());
     }
-    
+
     let target_id = parts[0];
     let message = parts[1];
-    
+
     send_direct_message(write, client_id, target_id, message).await
 }
 
 async fn handle_broadcast_command(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
     client_id: &str,
     message: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -363,7 +414,12 @@ async fn handle_broadcast_command(
 }
 
 async fn handle_webrtc_command(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
     client_id: &str,
     args: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -373,15 +429,20 @@ async fn handle_webrtc_command(
         println!("Types: offer, answer, ice-candidate");
         return Ok(());
     }
-    
+
     let target_id = parts[0];
     let signaling_type = parts[1];
-    
+
     send_webrtc_signaling(write, client_id, target_id, signaling_type).await
 }
 
 async fn handle_generic_command(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
     client_id: &str,
     args: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -390,17 +451,22 @@ async fn handle_generic_command(
         println!("Usage: /generic <target_id> <content>");
         return Ok(());
     }
-    
+
     let target_id = parts[0];
     let content = parts[1];
-    
+
     send_generic_message(write, client_id, target_id, content).await
 }
 
 // Message sending functions
 
 async fn send_direct_message(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
     client_id: &str,
     target_id: &str,
     content: &str,
@@ -410,9 +476,9 @@ async fn send_direct_message(
         MessageType::TextChat {
             target_user_id: Some(target_id.to_string()),
             content: content.to_string(),
-        }
+        },
     );
-    
+
     let json_str = serde_json::to_string(&message)?;
     write.send(WsMessage::Text(json_str)).await?;
     println!("📤 Sent direct message to {}: {}", target_id, content);
@@ -420,7 +486,12 @@ async fn send_direct_message(
 }
 
 async fn send_broadcast_message(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
     client_id: &str,
     content: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -429,9 +500,9 @@ async fn send_broadcast_message(
         MessageType::TextChat {
             target_user_id: None, // None means broadcast
             content: content.to_string(),
-        }
+        },
     );
-    
+
     let json_str = serde_json::to_string(&message)?;
     write.send(WsMessage::Text(json_str)).await?;
     println!("📢 Sent broadcast message: {}", content);
@@ -439,7 +510,12 @@ async fn send_broadcast_message(
 }
 
 async fn send_webrtc_signaling(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
     client_id: &str,
     target_id: &str,
     signaling_type: &str,
@@ -467,15 +543,15 @@ async fn send_webrtc_signaling(
             })
         }
     };
-    
+
     let message = Message::new(
         Some(client_id.to_string()),
         MessageType::WebRTCSignaling {
             target_user_id: target_id.to_string(),
             signaling_data,
-        }
+        },
     );
-    
+
     let json_str = serde_json::to_string(&message)?;
     write.send(WsMessage::Text(json_str)).await?;
     println!("🎥 Sent WebRTC {} to {}", signaling_type, target_id);
@@ -483,7 +559,12 @@ async fn send_webrtc_signaling(
 }
 
 async fn send_generic_message(
-    write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>,
+    write: &mut futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        WsMessage,
+    >,
     client_id: &str,
     target_id: &str,
     content: &str,
@@ -493,9 +574,9 @@ async fn send_generic_message(
         MessageType::GenericMessage {
             target_user_id: target_id.to_string(),
             content: content.to_string(),
-        }
+        },
     );
-    
+
     let json_str = serde_json::to_string(&message)?;
     write.send(WsMessage::Text(json_str)).await?;
     println!("📦 Sent generic message to {}: {}", target_id, content);

@@ -1,161 +1,184 @@
-use wasm_bindgen::prelude::*;
-use web_sys::{console, MediaStream};
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
+use wasm_bindgen::prelude::*;
+use web_sys::console;
 
-use crate::websocket_client::WebSocketClient;
-use crate::webrtc_client::WebRTCClient;
 use crate::dom_helpers::DomHelpers;
+use crate::webrtc_client::WebRTCClient;
+use crate::websocket_client::WebSocketClient;
 
-// WASM client entry point
+// The core application state, designed for single-threaded WASM environment.
+#[wasm_bindgen]
+#[derive(Clone)]
 pub struct VideoChat {
     websocket: Rc<RefCell<Option<WebSocketClient>>>,
     webrtc: Rc<RefCell<Option<WebRTCClient>>>,
-    dom: DomHelpers,
-    username: Option<String>,
-    current_call: Option<String>,
-    is_connected: bool,
-    is_in_call: bool,
+    username: Rc<RefCell<Option<String>>>,
+    current_call: Rc<RefCell<Option<String>>>,
+    is_connected: Rc<RefCell<bool>>,
+    is_in_call: Rc<RefCell<bool>>,
 }
 
+#[wasm_bindgen]
 impl VideoChat {
-    pub fn new() -> VideoChat {
-        console_error_panic_hook::set_once();
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
         VideoChat {
             websocket: Rc::new(RefCell::new(None)),
             webrtc: Rc::new(RefCell::new(None)),
-            dom: DomHelpers::new().unwrap(),
-            username: None,
-            current_call: None,
-            is_connected: false,
-            is_in_call: false,
+            username: Rc::new(RefCell::new(None)),
+            current_call: Rc::new(RefCell::new(None)),
+            is_connected: Rc::new(RefCell::new(false)),
+            is_in_call: Rc::new(RefCell::new(false)),
         }
     }
 
-    pub async fn initialize(&mut self) -> Result<(), JsValue> {
+    pub async fn initialize(&self) -> Result<(), JsValue> {
         console::log_1(&"Initializing VideoChat WASM client...".into());
-        // Initialize WebRTC client
-        let webrtc_client = WebRTCClient::new(self.clone_handle_rc()).await?;
-        *self.webrtc.borrow_mut() = Some(webrtc_client);
-        // Setup DOM event listeners
-        self.dom.setup_event_listeners(self)?;
+        DomHelpers::setup_event_listeners(self.clone())?;
         console::log_1(&"VideoChat WASM client initialized successfully".into());
         Ok(())
     }
 
-    pub async fn connect(&mut self, url: &str, username: &str) -> Result<(), JsValue> {
+    pub async fn connect(&self, url: &str, username: &str) -> Result<(), JsValue> {
         console::log_2(&"Connecting to".into(), &url.into());
-        
-        let websocket_client = WebSocketClient::new(url, username, self.clone_handle()).await?;
+
+        let websocket_client = WebSocketClient::new(url, username, self.clone()).await?;
         *self.websocket.borrow_mut() = Some(websocket_client);
-        
-        self.username = Some(username.to_string());
-        self.is_connected = true;
-        
-        // Update UI
-        self.dom.update_connection_status(true, username)?;
-        
+
+        *self.username.borrow_mut() = Some(username.to_string());
+        *self.is_connected.borrow_mut() = true;
+
+        DomHelpers::update_connection_status(true, username)?;
+
         Ok(())
     }
 
-    pub fn disconnect(&mut self) -> Result<(), JsValue> {
-        if let Some(ref mut websocket) = &mut *self.websocket.borrow_mut() {
+    pub fn disconnect(&self) -> Result<(), JsValue> {
+        if let Some(ref mut websocket) = *self.websocket.borrow_mut() {
             websocket.close()?;
         }
         *self.websocket.borrow_mut() = None;
-        
-        self.username = None;
-        self.is_connected = false;
-        
-        // Update UI
-        self.dom.update_connection_status(false, "")?;
-        
+
+        if let Some(ref webrtc) = *self.webrtc.borrow() {
+            webrtc.close_connection()?;
+        }
+        *self.webrtc.borrow_mut() = None;
+
+        *self.username.borrow_mut() = None;
+        *self.is_connected.borrow_mut() = false;
+        *self.is_in_call.borrow_mut() = false;
+        *self.current_call.borrow_mut() = None;
+
+        DomHelpers::update_connection_status(false, "")?;
+        DomHelpers::update_call_status(false, "")?;
+        DomHelpers::clear_remote_video()?;
+
         Ok(())
     }
 
-    pub async fn start_call(&mut self, target_user: &str) -> Result<(), JsValue> {
-        if !self.is_connected {
+    pub async fn start_call(&self, target_user: &str) -> Result<(), JsValue> {
+        if !*self.is_connected.borrow() {
             return Err(JsValue::from_str("Not connected to server"));
         }
 
-        // 通話開始の詳細ログ
         console::group_1(&"=== Starting WebRTC Call ===".into());
-        console::log_2(&"Caller:".into(), &self.username.as_ref().unwrap_or(&"unknown".to_string()).into());
+        console::log_2(
+            &"Caller:".into(),
+            &self
+                .username
+                .borrow()
+                .as_ref()
+                .unwrap_or(&"unknown".to_string())
+                .into(),
+        );
         console::log_2(&"Target:".into(), &target_user.into());
-        
-        // Initialize new WebRTC client for this call (in case of reconnection)
-        console::log_1(&"Initializing fresh WebRTC client...".into());
-        let webrtc_client = WebRTCClient::new(self.clone_handle_rc()).await?;
-        *self.webrtc.borrow_mut() = Some(webrtc_client);
-        
-        // ICE候補イベントリスナーを設定
-        self.setup_ice_candidate_listener(target_user)?;
-        
-        console::log_1(&"Getting user media...".into());
-        
-        // Get user media
-        if let Some(ref webrtc) = &*self.webrtc.borrow() {
-            let local_stream = webrtc.get_user_media().await?;
-            console::log_1(&"User media obtained successfully".into());
-            console::log_1(&"Setting local video stream to DOM...".into());
-                // Set local video stream to DOM
-                if let Some(ref webrtc) = &*self.webrtc.borrow() {
-                    if let Some(local_stream) = webrtc.get_local_stream() {
-                        self.dom.set_local_video_stream(&local_stream)?;
+
+        let self_clone_track = self.clone();
+        let ontrack = Closure::wrap(Box::new(move |event: web_sys::RtcTrackEvent| {
+            let streams = event.streams();
+            if streams.length() > 0 {
+                if let Ok(stream) = streams.get(0).dyn_into::<web_sys::MediaStream>() {
+                    if let Err(e) = DomHelpers::set_remote_video_stream(&stream) {
+                        console::error_2(&"Error setting remote video stream:".into(), &e);
                     }
                 }
-            console::log_1(&"✅ Local video stream set successfully".into());
-            
-            // Create offer (SDP)
-            console::log_1(&"Creating WebRTC offer...".into());
-            let offer = webrtc.create_offer().await?;
-            console::log_2(&"Offer created, SDP length:".into(), &offer.len().into());
-            
-            // Send offer through WebSocket
-            if let Some(ref websocket) = &*self.websocket.borrow() {
-                console::log_1(&"Sending offer to server...".into());
-                websocket.send_signaling_message(target_user, "offer", &offer).await?;
-                console::log_1(&"Offer sent successfully".into());
             }
+        }) as Box<dyn FnMut(_)>);
+
+        let self_clone_ice = self.clone();
+        let target_user_clone_ice = target_user.to_string();
+        let onicecandidate =
+            Closure::wrap(Box::new(move |event: web_sys::RtcPeerConnectionIceEvent| {
+                if let Some(candidate) = event.candidate() {
+                    let websocket_clone = self_clone_ice.websocket.clone();
+                    let target_clone = target_user_clone_ice.clone();
+                    let candidate_str = candidate.candidate();
+
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Some(ws) = &*websocket_clone.borrow() {
+                            if let Err(e) = ws
+                                .send_signaling_message(
+                                    &target_clone,
+                                    "ice-candidate",
+                                    &candidate_str,
+                                )
+                                .await
+                            {
+                                console::error_2(&"Failed to send ICE candidate:".into(), &e);
+                            }
+                        }
+                    });
+                }
+            }) as Box<dyn FnMut(_)>);
+
+        let webrtc_client = WebRTCClient::new(&ontrack, &onicecandidate).await?;
+        ontrack.forget();
+        onicecandidate.forget();
+
+        let local_stream = webrtc_client.get_user_media().await?;
+        DomHelpers::set_local_video_stream(&local_stream)?;
+
+        let offer = webrtc_client.create_offer().await?;
+
+        if let Some(ref websocket) = &*self.websocket.borrow() {
+            websocket
+                .send_signaling_message(target_user, "offer", &offer)
+                .await?;
         }
+
+        *self.webrtc.borrow_mut() = Some(webrtc_client);
         console::group_end();
-        
-        self.current_call = Some(target_user.to_string());
-        self.is_in_call = true;
-        
-        // Update UI
-        self.dom.update_call_status(true, target_user)?;
-        
+
+        *self.current_call.borrow_mut() = Some(target_user.to_string());
+        *self.is_in_call.borrow_mut() = true;
+
+        DomHelpers::update_call_status(true, target_user)?;
+
         Ok(())
     }
 
-    pub fn end_call(&mut self) -> Result<(), JsValue> {
+    pub fn end_call(&self) -> Result<(), JsValue> {
         console::group_1(&"=== Ending WebRTC Call ===".into());
-        console::log_2(&"Current call with:".into(), &self.current_call.clone().unwrap_or("unknown".to_string()).into());
-        
-        // Close peer connection
+
         if let Some(ref webrtc) = &*self.webrtc.borrow() {
-            console::log_1(&"Closing WebRTC peer connection".into());
             webrtc.close_connection()?;
         }
-        
-        // Notify other party
-        if let Some(ref current_call) = &self.current_call {
+
+        if let Some(ref current_call) = &*self.current_call.borrow() {
             if let Some(ref websocket) = &*self.websocket.borrow() {
-                console::log_2(&"Notifying remote peer of hangup:".into(), &current_call.into());
                 let _ = websocket.send_signaling_message(current_call, "hangup", "");
             }
         }
-        
-        self.current_call = None;
-        self.is_in_call = false;
-        console::log_1(&"Call state cleared".into());
-        
-        // Update UI
-        self.dom.update_call_status(false, "")?;
-        self.dom.clear_remote_video()?;
+
+        *self.webrtc.borrow_mut() = None;
+        *self.current_call.borrow_mut() = None;
+        *self.is_in_call.borrow_mut() = false;
+
+        DomHelpers::update_call_status(false, "")?;
+        DomHelpers::clear_remote_video()?;
         console::group_end();
-        
+
         Ok(())
     }
 
@@ -173,207 +196,154 @@ impl VideoChat {
         Ok(())
     }
 
-    pub async fn toggle_camera(&mut self) -> Result<(), JsValue> {
-        if let Some(ref mut webrtc) = &mut *self.webrtc.borrow_mut() {
+    pub async fn toggle_camera(&self) -> Result<(), JsValue> {
+        if let Some(ref mut webrtc) = *self.webrtc.borrow_mut() {
             let enabled = webrtc.toggle_camera().await?;
-            self.dom.update_camera_button(enabled)?;
+            DomHelpers::update_camera_button(enabled)?;
         }
         Ok(())
     }
 
-    pub async fn toggle_microphone(&mut self) -> Result<(), JsValue> {
-        if let Some(ref mut webrtc) = &mut *self.webrtc.borrow_mut() {
+    pub async fn toggle_microphone(&self) -> Result<(), JsValue> {
+        if let Some(ref mut webrtc) = *self.webrtc.borrow_mut() {
             let enabled = webrtc.toggle_microphone().await?;
-            self.dom.update_microphone_button(enabled)?;
+            DomHelpers::update_microphone_button(enabled)?;
         }
         Ok(())
     }
 
-    // Internal methods
-    // Internal-only methods (not exposed to JS)
-    // Internal-only methods (not exposed to JS)
-    pub fn clone_handle(&self) -> VideoChat {
-        VideoChat {
-            websocket: self.websocket.clone(),
-            webrtc: self.webrtc.clone(),
-            dom: self.dom.clone(),
-            username: self.username.clone(),
-            current_call: self.current_call.clone(),
-            is_connected: self.is_connected,
-            is_in_call: self.is_in_call,
+    pub async fn send_test_signaling_message(&self, target_user: &str) -> Result<(), JsValue> {
+        if !*self.is_connected.borrow() {
+            return Err(JsValue::from_str("Not connected to server"));
         }
+
+        let websocket = self.websocket.borrow().clone();
+
+        if let Some(websocket) = websocket {
+            websocket
+                .send_signaling_message(target_user, "test", "ping")
+                .await?;
+        } else {
+            return Err(JsValue::from_str("WebSocket client is not available"));
+        }
+
+        Ok(())
     }
 
-    // Internal-only: do not expose to JS
-    pub fn clone_handle_rc(&self) -> Rc<RefCell<VideoChat>> {
-        Rc::new(RefCell::new(self.clone_handle()))
-    }
-
-    pub async fn handle_signaling_message(&mut self, from: &str, signaling_type: &str, data: &str) -> Result<(), JsValue> {
-        // WebRTCシグナリング処理の詳細ログ
+    pub async fn handle_signaling_message(
+        &self,
+        from: &str,
+        signaling_type: &str,
+        data: &str,
+    ) -> Result<(), JsValue> {
         console::group_1(&"=== Handling WebRTC Signaling ===".into());
-        console::log_2(&"From:".into(), &from.into());
-        console::log_2(&"Type:".into(), &signaling_type.into());
-        console::log_2(&"Data length:".into(), &data.len().into());
-        console::log_2(&"Current user:".into(), &self.username.as_ref().unwrap_or(&"unknown".to_string()).into());
-        
+
         match signaling_type {
             "offer" => {
-                console::log_1(&"=== OFFER PROCESSING START ===".into());
-                console::log_1(&"Processing incoming call offer".into());
-                console::log_2(&"SDP preview (100 chars):".into(), &data.chars().take(100).collect::<String>().into());
-                
-                console::log_1(&"About to show incoming call dialog...".into());
-                // Handle incoming call
-                let should_accept = self.dom.show_incoming_call_dialog(from)?;
-                console::log_2(&"Dialog result:".into(), &should_accept.into());
-                
+                let should_accept = DomHelpers::show_incoming_call_dialog(from)?;
+
                 if should_accept {
-                    console::log_1(&"Call accepted, setting up WebRTC connection".into());
-                    
-                    // ICE候補イベントリスナーを設定
-                    self.setup_ice_candidate_listener(from)?;
-                    
-                    if let Some(ref webrtc) = &*self.webrtc.borrow() {
-                        let local_stream = webrtc.get_user_media().await?;
-                        console::log_1(&"Local stream obtained".into());
-                        console::log_1(&"Setting local video stream to DOM (answer side)...".into());
-                        self.dom.set_local_video_stream(&local_stream)?;
-                        console::log_1(&"✅ Local video stream set successfully (answer side)".into());
-                        
-                        console::log_1(&"Processing offer and creating answer".into());
-                        let answer = webrtc.handle_offer(data).await?;
-                        console::log_2(&"Answer created, SDP length:".into(), &answer.len().into());
-                        
-                        if let Some(ref websocket) = &*self.websocket.borrow() {
-                            console::log_1(&"Sending answer to caller".into());
-                            websocket.send_signaling_message(from, "answer", &answer).await?;
+                    let self_clone_track = self.clone();
+                    let ontrack = Closure::wrap(Box::new(move |event: web_sys::RtcTrackEvent| {
+                        let streams = event.streams();
+                        if streams.length() > 0 {
+                            if let Ok(stream) = streams.get(0).dyn_into::<web_sys::MediaStream>() {
+                                if let Err(e) = DomHelpers::set_remote_video_stream(&stream) {
+                                    console::error_2(
+                                        &"Error setting remote video stream:".into(),
+                                        &e,
+                                    );
+                                }
+                            }
                         }
-                        
-                        self.current_call = Some(from.to_string());
-                        self.is_in_call = true;
-                        self.dom.update_call_status(true, from)?;
-                    }
-                } else {
-                    console::log_1(&"=== CALL REJECTED BY USER ===".into());
-                    console::log_1(&"Call rejected by user".into());
-                    // Reject call
+                    }) as Box<dyn FnMut(_)>);
+
+                    let self_clone_ice = self.clone();
+                    let from_clone_ice = from.to_string();
+                    let onicecandidate =
+                        Closure::wrap(Box::new(move |event: web_sys::RtcPeerConnectionIceEvent| {
+                            if let Some(candidate) = event.candidate() {
+                                let websocket_clone = self_clone_ice.websocket.clone();
+                                let target_clone = from_clone_ice.clone();
+                                let candidate_str = candidate.candidate();
+
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    if let Some(ws) = &*websocket_clone.borrow() {
+                                        if let Err(e) = ws
+                                            .send_signaling_message(
+                                                &target_clone,
+                                                "ice-candidate",
+                                                &candidate_str,
+                                            )
+                                            .await
+                                        {
+                                            console::error_2(
+                                                &"Failed to send ICE candidate:".into(),
+                                                &e,
+                                            );
+                                        }
+                                    }
+                                });
+                            }
+                        }) as Box<dyn FnMut(_)>);
+
+                    let webrtc_client = WebRTCClient::new(&ontrack, &onicecandidate).await?;
+                    ontrack.forget();
+                    onicecandidate.forget();
+
+                    let local_stream = webrtc_client.get_user_media().await?;
+                    DomHelpers::set_local_video_stream(&local_stream)?;
+
+                    let answer = webrtc_client.handle_offer(data).await?;
+
                     if let Some(ref websocket) = &*self.websocket.borrow() {
-                        console::log_1(&"Sending reject message...".into());
+                        websocket
+                            .send_signaling_message(from, "answer", &answer)
+                            .await?;
+                    }
+
+                    *self.webrtc.borrow_mut() = Some(webrtc_client);
+                    *self.current_call.borrow_mut() = Some(from.to_string());
+                    *self.is_in_call.borrow_mut() = true;
+                    DomHelpers::update_call_status(true, from)?;
+                } else {
+                    if let Some(ref websocket) = &*self.websocket.borrow() {
                         websocket.send_signaling_message(from, "reject", "").await?;
-                        console::log_1(&"Reject message sent successfully".into());
-                    } else {
-                        console::log_1(&"ERROR: No websocket available to send reject".into());
                     }
                 }
             }
             "answer" => {
-                console::log_1(&"Processing call answer from callee".into());
-                console::log_2(&"SDP preview (100 chars):".into(), &data.chars().take(100).collect::<String>().into());
                 if let Some(ref webrtc) = &*self.webrtc.borrow() {
                     webrtc.handle_answer(data).await?;
-                    console::log_1(&"Answer processed successfully".into());
                 }
             }
             "ice-candidate" => {
-                console::log_1(&"Processing ICE candidate".into());
-                console::log_2(&"Candidate data:".into(), &data.into());
                 if let Some(ref webrtc) = &*self.webrtc.borrow() {
                     webrtc.handle_ice_candidate(data).await?;
-                    console::log_1(&"ICE candidate processed successfully".into());
                 }
             }
             "hangup" => {
-                console::log_1(&"Call ended by remote peer".into());
                 self.end_call()?;
             }
             "reject" => {
-                console::log_1(&"Call was rejected by remote peer".into());
-                self.dom.show_notification("Call rejected", "warning")?;
+                DomHelpers::show_notification("Call rejected", "warning")?;
                 self.end_call()?;
             }
-            _ => {
-                console::log_2(&"Unknown signaling type:".into(), &signaling_type.into());
-            }
+            _ => {}
         }
         console::group_end();
-        
+
         Ok(())
     }
 
-    pub fn handle_message(&self, from: &str, message: &str, is_broadcast: bool) -> Result<(), JsValue> {
+    pub fn handle_message(
+        &self,
+        from: &str,
+        message: &str,
+        is_broadcast: bool,
+    ) -> Result<(), JsValue> {
         let message_type = if is_broadcast { "broadcast" } else { "direct" };
-        self.dom.add_chat_message(from, message, message_type)?;
-        Ok(())
-    }
-
-    // #[wasm_bindgen] を削除
-    pub fn handle_remote_stream(&self, stream: &MediaStream) -> Result<(), JsValue> {
-        self.dom.set_remote_video_stream(stream)?;
-        Ok(())
-    }
-
-    /// Test method to send signaling messages directly (exposed to WASM)
-    pub async fn send_signaling_message(&self, target_user: &str, signaling_type: &str, data: &str) -> Result<(), JsValue> {
-        if !self.is_connected {
-            return Err(JsValue::from_str("Not connected to server"));
-        }
-
-        console::group_1(&"=== WASM send_signaling_message ===".into());
-        console::log_2(&"Target:".into(), &target_user.into());
-        console::log_2(&"Signaling Type:".into(), &signaling_type.into());
-        console::log_2(&"Data:".into(), &data.into());
-
-        if let Some(ref websocket) = &*self.websocket.borrow() {
-            console::log_1(&"Calling WebSocket client send_signaling_message...".into());
-            websocket.send_signaling_message(target_user, signaling_type, data).await?;
-            console::log_1(&"✅ Signaling message sent successfully".into());
-        } else {
-            console::error_1(&"❌ WebSocket client not available".into());
-            return Err(JsValue::from_str("WebSocket client not available"));
-        }
-
-        console::group_end();
-        Ok(())
-    }
-
-    /// ICE候補イベントリスナーを設定（将来の実装）
-    fn setup_ice_candidate_listener(&self, target_user: &str) -> Result<(), JsValue> {
-        console::log_2(&"Setting up ICE candidate listener for:".into(), &target_user.into());
-        
-        if let Some(ref webrtc) = &*self.webrtc.borrow() {
-            let websocket_ref = self.websocket.clone();
-            let target_user_clone = target_user.to_string();
-            
-            webrtc.set_ice_candidate_callback(move |candidate: &str| {
-                console::log_1(&"ICE candidate callback triggered".into());
-                console::log_2(&"Candidate:".into(), &candidate.into());
-                
-                if let Some(ref websocket) = &*websocket_ref.borrow() {
-                    console::log_1(&"Sending ICE candidate to signaling server".into());
-                    
-                    // 非同期呼び出しをspawn_localで実行
-                    let websocket_clone = websocket.clone();
-                    let target_clone = target_user_clone.clone();
-                    let candidate_clone = candidate.to_string();
-                    
-                    wasm_bindgen_futures::spawn_local(async move {
-                        if let Err(e) = websocket_clone.send_signaling_message(&target_clone, "ice-candidate", &candidate_clone).await {
-                            console::error_2(&"Failed to send ICE candidate:".into(), &e);
-                        } else {
-                            console::log_1(&"✅ ICE candidate sent successfully".into());
-                        }
-                    });
-                } else {
-                    console::error_1(&"❌ WebSocket not available for ICE candidate transmission".into());
-                }
-            });
-            
-            console::log_1(&"✅ ICE candidate automatic transmission enabled".into());
-        } else {
-            console::error_1(&"❌ WebRTC client not available".into());
-        }
-        
+        DomHelpers::add_chat_message(from, message, message_type)?;
         Ok(())
     }
 }

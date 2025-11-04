@@ -1,10 +1,10 @@
-use websocket_chat_signaling_server::{WebSocketServer, config::ServerConfig, logging};
-use tracing::{info, error};
 use clap::{Arg, Command};
 use std::env;
 use std::net::IpAddr;
 use std::str::FromStr;
 use tokio::signal;
+use tracing::{error, info};
+use websocket_chat_signaling_server::{config::ServerConfig, logging, WebSocketServer};
 
 #[tokio::main]
 async fn main() {
@@ -65,7 +65,10 @@ async fn main() {
                 config.log_level = log_level.to_lowercase();
             }
             _ => {
-                eprintln!("Invalid log level '{}'. Valid levels: trace, debug, info, warn, error", log_level);
+                eprintln!(
+                    "Invalid log level '{}'. Valid levels: trace, debug, info, warn, error",
+                    log_level
+                );
                 std::process::exit(1);
             }
         }
@@ -90,9 +93,9 @@ async fn main() {
 
     // Create the WebSocket server
     let server = WebSocketServer::new(config);
-    
+
     info!("Server initialized, starting to accept connections");
-    
+
     // Set up graceful shutdown handling
     let server_handle = tokio::spawn({
         let server = server.clone();
@@ -109,14 +112,14 @@ async fn main() {
 
     // Wait for shutdown signal
     let shutdown_signal = wait_for_shutdown_signal();
-    
+
     tokio::select! {
         _ = server_handle => {
             error!("Server task completed unexpectedly");
         }
         _ = shutdown_signal => {
             info!("Shutdown signal received, initiating graceful shutdown");
-            
+
             // Perform graceful shutdown
             if let Err(e) = server.shutdown().await {
                 error!(

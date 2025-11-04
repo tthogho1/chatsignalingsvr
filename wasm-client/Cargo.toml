@@ -6,48 +6,51 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = ["console_error_panic_hook"]
+
 [dependencies]
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-js-sys = "0.3"
-web-sys = { version = "0.3", features = [
-  "console",
-  "WebSocket",
-  "MessageEvent",
-  "CloseEvent",
-  "ErrorEvent",
-  "BinaryType",
-  "RtcPeerConnection",
-  "RtcConfiguration",
-  "RtcIceServer",
-  "RtcSessionDescription",
-  "RtcSessionDescriptionInit",
-  "RtcIceCandidate",
-  "RtcIceCandidateInit",
-  "RtcSdpType",
-  "RtcTrackEvent",
-  "RtcPeerConnectionIceEvent",
-  "MediaDevices",
-  "MediaStream",
-  "MediaStreamTrack",
-  "MediaStreamConstraints",
-  "Navigator",
-  "Window",
-  "Document",
-  "Element",
-  "HtmlElement",
-  "HtmlVideoElement",
-  "HtmlButtonElement",
-  "HtmlInputElement",
-  "Event",
-  "EventTarget",
-  "KeyboardEvent",
-] }
+console_error_panic_hook = { version = "0.1.7", optional = true }
+futures = "0.3"
+js-sys = "0.3.69"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-console_error_panic_hook = "0.1"
-gloo-utils = "0.2"
+wasm-bindgen = "0.2.92"
+wasm-bindgen-futures = "0.4.42"
+web-sys = { version = "0.3.69", features = [
+  'console',
+  'Window',
+  'Navigator',
+  'Document',
+  'Element',
+  'HtmlElement',
+  'HtmlVideoElement',
+  'HtmlButtonElement',
+  'HtmlInputElement',
+  'MediaStream',
+  'MediaStreamConstraints',
+  'MediaDevices',
+  'MediaStreamTrack',
+  'RtcPeerConnection',
+  'RtcConfiguration',
+  'RtcSessionDescription',
+  'RtcSessionDescriptionInit',
+  'RtcIceCandidate',
+  'RtcIceCandidateInit',
+  'RtcSdpType',
+  'RtcTrackEvent',
+  'RtcPeerConnectionIceEvent',
+  'RtcPeerConnectionState',
+  'RtcRtpSender',
+  'CssStyleDeclaration',
+  'WebSocket',
+  'MessageEvent',
+  'CloseEvent',
+  'ErrorEvent',
+  'BinaryType',
+] }
 serde-wasm-bindgen = "0.6"
+once_cell = "1.19.0"
 uuid = { version = "1", features = ["v4", "js"], default-features = false }
 
 getrandom = { version = "0.2", features = ["js"] }

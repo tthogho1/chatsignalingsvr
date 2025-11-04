@@ -1,12 +1,12 @@
+use chrono::Utc;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
-use chrono::Utc;
-use tracing::{info, debug, warn, error, instrument};
 
 use crate::models::client::{Client, ClientRegistry};
-use crate::models::message::{ClientId, Message};
 use crate::models::error::ConnectionError;
+use crate::models::message::{ClientId, Message};
 
 pub struct ConnectionManager {
     clients: Arc<RwLock<ClientRegistry>>,
@@ -29,14 +29,14 @@ impl ConnectionManager {
         let connected_at = client.connected_at;
         let mut clients = self.clients.write().await;
         clients.insert(client_id.clone(), client);
-        
+
         info!(
             client_id = %client_id,
             connected_at = %connected_at,
             total_clients = clients.len(),
             "Client registered and added to registry"
         );
-        
+
         client_id
     }
 
@@ -44,7 +44,7 @@ impl ConnectionManager {
     pub async fn remove_client(&self, client_id: &ClientId) -> Option<Client> {
         let mut clients = self.clients.write().await;
         let removed_client = clients.remove(client_id);
-        
+
         match &removed_client {
             Some(_) => {
                 debug!(
@@ -60,7 +60,7 @@ impl ConnectionManager {
                 );
             }
         }
-        
+
         removed_client
     }
 
@@ -86,17 +86,22 @@ impl ConnectionManager {
 
     /// Creates a new client with a fresh channel and adds it to the registry
     #[instrument(skip(self))]
-    pub async fn connect_client(&self) -> (ClientId, tokio::sync::mpsc::UnboundedReceiver<crate::models::message::Message>) {
+    pub async fn connect_client(
+        &self,
+    ) -> (
+        ClientId,
+        tokio::sync::mpsc::UnboundedReceiver<crate::models::message::Message>,
+    ) {
         let client_id = Self::generate_client_id();
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let client = Client::new(client_id.clone(), sender);
-        
+
         info!(
             client_id = %client_id,
             connected_at = %client.connected_at,
             "New client connecting"
         );
-        
+
         self.add_client(client).await;
         (client_id, receiver)
     }
@@ -139,10 +144,13 @@ impl ConnectionManager {
     /// Gets connection information for all clients
     pub async fn get_all_client_info(&self) -> Vec<ClientInfo> {
         let clients = self.clients.read().await;
-        clients.values().map(|client| ClientInfo {
-            id: client.id.clone(),
-            connected_at: client.connected_at,
-        }).collect()
+        clients
+            .values()
+            .map(|client| ClientInfo {
+                id: client.id.clone(),
+                connected_at: client.connected_at,
+            })
+            .collect()
     }
 
     /// Find client ID by username
@@ -167,7 +175,7 @@ impl ConnectionManager {
         );
         None
     }
-    
+
     /// Find username by client ID
     pub async fn find_username_by_client_id(&self, client_id: &ClientId) -> Option<String> {
         let clients = self.clients.read().await;
@@ -215,21 +223,25 @@ impl ConnectionManager {
 
     /// Send a message to a specific client
     #[instrument(skip(self, message), fields(target_id = %target_id, message_id = %message.id))]
-    pub async fn send_to_client(&self, target_id: &ClientId, message: Message) -> Result<(), ConnectionError> {
+    pub async fn send_to_client(
+        &self,
+        target_id: &ClientId,
+        message: Message,
+    ) -> Result<(), ConnectionError> {
         let clients = self.clients.read().await;
-        
+
         match clients.get(target_id) {
             Some(client) => {
-                client.sender.send(message)
-                    .map_err(|_| {
-                        error!(
-                            target_id = %target_id,
-                            "Channel send failed for message"
-                        );
-                        ConnectionError::DeliveryFailed(
-                            format!("Failed to deliver message to client {}", target_id)
-                        )
-                    })?;
+                client.sender.send(message).map_err(|_| {
+                    error!(
+                        target_id = %target_id,
+                        "Channel send failed for message"
+                    );
+                    ConnectionError::DeliveryFailed(format!(
+                        "Failed to deliver message to client {}",
+                        target_id
+                    ))
+                })?;
                 debug!(
                     target_id = %target_id,
                     "Message sent successfully"
@@ -257,8 +269,8 @@ pub struct ClientInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::mpsc;
     use crate::models::message::Message;
+    use tokio::sync::mpsc;
 
     #[tokio::test]
     async fn test_connection_manager_creation() {
@@ -270,10 +282,10 @@ mod tests {
     fn test_generate_client_id() {
         let id1 = ConnectionManager::generate_client_id();
         let id2 = ConnectionManager::generate_client_id();
-        
+
         // IDs should be different
         assert_ne!(id1, id2);
-        
+
         // IDs should be valid UUIDs (36 characters with hyphens)
         assert_eq!(id1.len(), 36);
         assert_eq!(id2.len(), 36);
@@ -289,7 +301,7 @@ mod tests {
         let client = Client::new(client_id.clone(), sender);
 
         let returned_id = manager.add_client(client).await;
-        
+
         assert_eq!(returned_id, client_id);
         assert_eq!(manager.client_count().await, 1);
         assert!(manager.client_exists(&client_id).await);
@@ -341,7 +353,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_all_clients() {
         let manager = ConnectionManager::new();
-        
+
         // Initially empty
         let all_clients = manager.get_all_clients().await;
         assert!(all_clients.is_empty());
@@ -358,7 +370,7 @@ mod tests {
 
         let all_clients = manager.get_all_clients().await;
         assert_eq!(all_clients.len(), 3);
-        
+
         // Check that all expected IDs are present
         for expected_id in expected_ids {
             assert!(all_clients.contains(&expected_id));
@@ -411,7 +423,7 @@ mod tests {
 
         // Verify all clients were added
         assert_eq!(manager.client_count().await, 10);
-        
+
         // Verify all clients exist
         for client_id in &added_ids {
             assert!(manager.client_exists(client_id).await);
@@ -421,9 +433,7 @@ mod tests {
         let mut remove_handles = vec![];
         for client_id in added_ids {
             let manager_clone = Arc::clone(&manager);
-            let handle = tokio::spawn(async move {
-                manager_clone.remove_client(&client_id).await
-            });
+            let handle = tokio::spawn(async move { manager_clone.remove_client(&client_id).await });
             remove_handles.push(handle);
         }
 
@@ -440,7 +450,7 @@ mod tests {
     #[tokio::test]
     async fn test_client_count() {
         let manager = ConnectionManager::new();
-        
+
         assert_eq!(manager.client_count().await, 0);
 
         // Add clients one by one and check count
@@ -463,13 +473,13 @@ mod tests {
     #[tokio::test]
     async fn test_connect_client() {
         let manager = ConnectionManager::new();
-        
+
         let (client_id, mut receiver) = manager.connect_client().await;
-        
+
         // Verify client was added
         assert_eq!(manager.client_count().await, 1);
         assert!(manager.client_exists(&client_id).await);
-        
+
         // Verify we can send messages to the client
         let client = manager.get_client(&client_id).await.unwrap();
         let message_type = crate::models::message::MessageType::TextChat {
@@ -477,7 +487,7 @@ mod tests {
             content: "Test message".to_string(),
         };
         let message = Message::new_simple(Some("sender".to_string()), message_type);
-        
+
         client.sender.send(message.clone()).unwrap();
         let received_message = receiver.recv().await.unwrap();
         assert_eq!(received_message.id, message.id);
@@ -486,17 +496,17 @@ mod tests {
     #[tokio::test]
     async fn test_disconnect_client() {
         let manager = ConnectionManager::new();
-        
+
         // Connect a client
         let (client_id, _receiver) = manager.connect_client().await;
         assert_eq!(manager.client_count().await, 1);
-        
+
         // Disconnect the client
         let disconnected = manager.disconnect_client(&client_id).await;
         assert!(disconnected);
         assert_eq!(manager.client_count().await, 0);
         assert!(!manager.client_exists(&client_id).await);
-        
+
         // Try to disconnect non-existent client
         let not_disconnected = manager.disconnect_client(&client_id).await;
         assert!(!not_disconnected);
@@ -505,15 +515,15 @@ mod tests {
     #[tokio::test]
     async fn test_get_client_info() {
         let manager = ConnectionManager::new();
-        
+
         // Try to get info for non-existent client
         let non_existent_info = manager.get_client_info(&"non_existent".to_string()).await;
         assert!(non_existent_info.is_none());
-        
+
         // Connect a client and get its info
         let (client_id, _receiver) = manager.connect_client().await;
         let client_info = manager.get_client_info(&client_id).await.unwrap();
-        
+
         assert_eq!(client_info.id, client_id);
         assert!(client_info.connected_at <= Utc::now());
     }
@@ -521,21 +531,21 @@ mod tests {
     #[tokio::test]
     async fn test_get_all_client_info() {
         let manager = ConnectionManager::new();
-        
+
         // Initially empty
         let all_info = manager.get_all_client_info().await;
         assert!(all_info.is_empty());
-        
+
         // Connect multiple clients
         let mut client_ids = Vec::new();
         for _ in 0..3 {
             let (client_id, _receiver) = manager.connect_client().await;
             client_ids.push(client_id);
         }
-        
+
         let all_info = manager.get_all_client_info().await;
         assert_eq!(all_info.len(), 3);
-        
+
         // Verify all client IDs are present
         let info_ids: Vec<String> = all_info.iter().map(|info| info.id.clone()).collect();
         for client_id in client_ids {
@@ -546,16 +556,16 @@ mod tests {
     #[tokio::test]
     async fn test_client_lifecycle_integration() {
         let manager = ConnectionManager::new();
-        
+
         // Connect multiple clients
         let mut clients = Vec::new();
         for i in 0..5 {
             let (client_id, receiver) = manager.connect_client().await;
             clients.push((client_id, receiver));
         }
-        
+
         assert_eq!(manager.client_count().await, 5);
-        
+
         // Test that all clients can receive messages
         for (client_id, mut receiver) in clients.into_iter().take(3) {
             let client = manager.get_client(&client_id).await.unwrap();
@@ -564,15 +574,15 @@ mod tests {
                 content: format!("Message for {}", client_id),
             };
             let message = Message::new_simple(Some("sender".to_string()), message_type);
-            
+
             client.sender.send(message.clone()).unwrap();
             let received_message = receiver.recv().await.unwrap();
             assert_eq!(received_message.id, message.id);
-            
+
             // Disconnect the client
             assert!(manager.disconnect_client(&client_id).await);
         }
-        
+
         // Should have 2 clients remaining
         assert_eq!(manager.client_count().await, 2);
     }
@@ -580,10 +590,10 @@ mod tests {
     #[tokio::test]
     async fn test_channel_cleanup_on_disconnect() {
         let manager = ConnectionManager::new();
-        
+
         // Connect a client
         let (client_id, mut receiver) = manager.connect_client().await;
-        
+
         // Get the client and verify channel works
         let client = manager.get_client(&client_id).await.unwrap();
         let message_type = crate::models::message::MessageType::TextChat {
@@ -591,25 +601,23 @@ mod tests {
             content: "Test message".to_string(),
         };
         let message = Message::new_simple(Some("sender".to_string()), message_type);
-        
+
         client.sender.send(message.clone()).unwrap();
         let received_message = receiver.recv().await.unwrap();
         assert_eq!(received_message.id, message.id);
-        
+
         // Disconnect the client
         manager.disconnect_client(&client_id).await;
-        
+
         // The receiver should eventually get None when the sender is dropped
         // This might take a moment due to async cleanup
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            receiver.recv()
-        ).await;
-        
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(100), receiver.recv()).await;
+
         // Either timeout or receive None (channel closed)
         match result {
-            Ok(None) => {}, // Channel properly closed
-            Err(_) => {}, // Timeout is also acceptable as cleanup might be async
+            Ok(None) => {} // Channel properly closed
+            Err(_) => {}   // Timeout is also acceptable as cleanup might be async
             Ok(Some(_)) => panic!("Should not receive more messages after disconnect"),
         }
     }

@@ -1,15 +1,15 @@
-pub mod models;
-pub mod handlers;
-pub mod config;
-pub mod logging;
 pub mod client;
+pub mod config;
+pub mod handlers;
+pub mod logging;
+pub mod models;
 
+use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tokio_tungstenite::{accept_async, WebSocketStream};
-use tracing::{info, error, warn, debug, trace, instrument};
-use futures_util::{SinkExt, StreamExt};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::config::ServerConfig;
 use crate::handlers::connection::ConnectionManager;
@@ -29,7 +29,7 @@ impl WebSocketServer {
     pub fn new(config: ServerConfig) -> Self {
         let clients = Arc::new(RwLock::new(ClientRegistry::new()));
         let connection_manager = Arc::new(ConnectionManager::new());
-        
+
         Self {
             config,
             connection_manager,
@@ -49,16 +49,15 @@ impl WebSocketServer {
         );
 
         // Bind TCP listener
-        let listener = TcpListener::bind(&addr).await
-            .map_err(|e| {
-                error!(
-                    bind_address = %self.config.bind_address,
-                    port = self.config.port,
-                    error = %e,
-                    "Failed to bind to address"
-                );
-                ServerError::BindError(e)
-            })?;
+        let listener = TcpListener::bind(&addr).await.map_err(|e| {
+            error!(
+                bind_address = %self.config.bind_address,
+                port = self.config.port,
+                error = %e,
+                "Failed to bind to address"
+            );
+            ServerError::BindError(e)
+        })?;
 
         info!(
             bind_address = %self.config.bind_address,
@@ -77,7 +76,7 @@ impl WebSocketServer {
                         max_connections = self.config.max_connections,
                         "New connection attempt"
                     );
-                    
+
                     // Check connection limit
                     if current_connections >= self.config.max_connections {
                         warn!(
@@ -158,14 +157,14 @@ impl WebSocketServer {
             client_count = client_count,
             "Initiating WebSocket server shutdown"
         );
-        
+
         // Get all connected client IDs
         let client_ids = self.connection_manager.get_all_clients().await;
-        
+
         // Disconnect all clients
         let mut disconnected_count = 0;
         let mut error_count = 0;
-        
+
         for client_id in client_ids {
             match self.disconnect_client(&client_id).await {
                 Ok(()) => {
@@ -185,7 +184,7 @@ impl WebSocketServer {
                 }
             }
         }
-        
+
         info!(
             disconnected_clients = disconnected_count,
             error_count = error_count,
@@ -198,7 +197,11 @@ impl WebSocketServer {
     #[instrument(skip(self), fields(client_id = %client_id))]
     async fn disconnect_client(&self, client_id: &str) -> Result<(), ServerError> {
         let client_id_string = client_id.to_string();
-        if self.connection_manager.disconnect_client(&client_id_string).await {
+        if self
+            .connection_manager
+            .disconnect_client(&client_id_string)
+            .await
+        {
             debug!(
                 client_id = %client_id,
                 "Client disconnected successfully"
@@ -238,19 +241,19 @@ impl WebSocketServerConnection {
                     "WebSocket upgrade failed"
                 );
                 return Err(ServerError::ConnectionError(
-                    crate::models::error::ConnectionError::WebSocketError(e)
+                    crate::models::error::ConnectionError::WebSocketError(e),
                 ));
             }
         };
 
         // Connect the client and get their ID and message receiver
         let (client_id, message_receiver) = self.connection_manager.connect_client().await;
-        
+
         // Also add the client to the shared registry for message handlers
         if let Some(client) = self.connection_manager.get_client(&client_id).await {
             self.clients.write().await.insert(client_id.clone(), client);
         }
-        
+
         let current_connections = self.connection_manager.client_count().await;
         info!(
             client_id = %client_id,
@@ -262,12 +265,14 @@ impl WebSocketServerConnection {
         let (ws_sender, ws_receiver) = ws_stream.split();
 
         // Handle the client connection with message processing
-        let result = self.handle_client_loop(client_id.clone(), ws_sender, ws_receiver, message_receiver).await;
+        let result = self
+            .handle_client_loop(client_id.clone(), ws_sender, ws_receiver, message_receiver)
+            .await;
 
         // Clean up: disconnect the client from both registries
         self.connection_manager.disconnect_client(&client_id).await;
         self.clients.write().await.remove(&client_id);
-        
+
         let remaining_connections = self.connection_manager.client_count().await;
         info!(
             client_id = %client_id,
@@ -283,11 +288,13 @@ impl WebSocketServerConnection {
     async fn handle_client_loop(
         &self,
         client_id: String,
-        mut ws_sender: futures_util::stream::SplitSink<WebSocketStream<TcpStream>, tokio_tungstenite::tungstenite::Message>,
+        mut ws_sender: futures_util::stream::SplitSink<
+            WebSocketStream<TcpStream>,
+            tokio_tungstenite::tungstenite::Message,
+        >,
         mut ws_receiver: futures_util::stream::SplitStream<WebSocketStream<TcpStream>>,
         mut message_receiver: tokio::sync::mpsc::UnboundedReceiver<crate::models::message::Message>,
     ) -> Result<(), ServerError> {
-
         info!(
             client_id = %client_id,
             "Starting client message handling loop"
@@ -304,7 +311,7 @@ impl WebSocketServerConnection {
                                 message_type = ?msg,
                                 "Received WebSocket message from client"
                             );
-                            
+
                             if let Err(e) = self.process_incoming_message(&client_id, msg).await {
                                 warn!(
                                     client_id = %client_id,
@@ -350,7 +357,7 @@ impl WebSocketServerConnection {
                                 sender_id = ?msg.sender_id,
                                 "Sending message to client"
                             );
-                            
+
                             if let Err(e) = self.send_message_to_client(&mut ws_sender, msg).await {
                                 error!(
                                     client_id = %client_id,
@@ -405,28 +412,29 @@ impl WebSocketServerConnection {
                     message_length = text.len(),
                     "Processing text message from client"
                 );
-                
+
                 // デバッグ用：受信したJSONの詳細をログ出力
                 debug!(
                     client_id = %client_id,
                     raw_message = %text,
                     "Raw JSON message received"
                 );
-                
+
                 // Parse JSON message
                 let parsed_message: crate::models::message::Message = serde_json::from_str(&text)
                     .map_err(|e| {
-                        error!(
-                            client_id = %client_id,
-                            error = %e,
-                            message_preview = %text.chars().take(200).collect::<String>(),
-                            full_message = %text,
-                            "Failed to parse JSON message - FULL DETAILS"
-                        );
-                        crate::models::error::ConnectionError::InvalidMessage(
-                            format!("Failed to parse JSON message: {}", e)
-                        )
-                    })?;
+                    error!(
+                        client_id = %client_id,
+                        error = %e,
+                        message_preview = %text.chars().take(200).collect::<String>(),
+                        full_message = %text,
+                        "Failed to parse JSON message - FULL DETAILS"
+                    );
+                    crate::models::error::ConnectionError::InvalidMessage(format!(
+                        "Failed to parse JSON message: {}",
+                        e
+                    ))
+                })?;
 
                 info!(
                     client_id = %client_id,
@@ -465,7 +473,7 @@ impl WebSocketServerConnection {
                     "Client sent unsupported binary message"
                 );
                 Err(crate::models::error::ConnectionError::InvalidMessage(
-                    "Binary messages are not supported".to_string()
+                    "Binary messages are not supported".to_string(),
                 ))
             }
             WsMessage::Frame(_) => {
@@ -485,8 +493,8 @@ impl WebSocketServerConnection {
         client_id: &str,
         message: crate::models::message::Message,
     ) -> Result<(), crate::models::error::ConnectionError> {
-        use crate::models::message::MessageType;
         use crate::handlers::{message::MessageHandler, signaling::SignalingHandler};
+        use crate::models::message::MessageType;
 
         // Update client username if provided in message sender_id
         info!(
@@ -497,7 +505,7 @@ impl WebSocketServerConnection {
             timestamp = %message.timestamp,
             "=== Processing Message - Debug ==="
         );
-        
+
         if let Some(username) = &message.sender_id {
             info!(
                 client_id = %client_id,
@@ -507,7 +515,9 @@ impl WebSocketServerConnection {
                 timestamp = %message.timestamp,
                 "=== User Information Registration ==="
             );
-            self.connection_manager.update_client_username(&client_id.to_string(), username.clone()).await;
+            self.connection_manager
+                .update_client_username(&client_id.to_string(), username.clone())
+                .await;
         } else {
             warn!(
                 client_id = %client_id,
@@ -523,7 +533,10 @@ impl WebSocketServerConnection {
 
         // Route based on message type
         let result = match &message.message_type {
-            MessageType::TextChat { target_user_id, content } => {
+            MessageType::TextChat {
+                target_user_id,
+                content,
+            } => {
                 info!(
                     client_id = %client_id,
                     message_id = %message.id,
@@ -532,14 +545,19 @@ impl WebSocketServerConnection {
                     message_type = "text_chat",
                     "Routing text chat message"
                 );
-                
-                message_handler.handle_text_chat(
-                    client_id.to_string(),
-                    target_user_id.clone(),
-                    content.clone(),
-                ).await
+
+                message_handler
+                    .handle_text_chat(
+                        client_id.to_string(),
+                        target_user_id.clone(),
+                        content.clone(),
+                    )
+                    .await
             }
-            MessageType::WebRTCSignaling { target_user_id, signaling_data } => {
+            MessageType::WebRTCSignaling {
+                target_user_id,
+                signaling_data,
+            } => {
                 // WebRTC情報とユーザー情報の詳細ログ出力
                 info!(
                     client_id = %client_id,
@@ -573,14 +591,19 @@ impl WebSocketServerConnection {
                         );
                     }
                 }
-                
-                signaling_handler.handle_webrtc_signaling(
-                    client_id.to_string(),
-                    target_user_id.clone(),
-                    signaling_data.clone(),
-                ).await
+
+                signaling_handler
+                    .handle_webrtc_signaling(
+                        client_id.to_string(),
+                        target_user_id.clone(),
+                        signaling_data.clone(),
+                    )
+                    .await
             }
-            MessageType::GenericMessage { target_user_id, content } => {
+            MessageType::GenericMessage {
+                target_user_id,
+                content,
+            } => {
                 info!(
                     client_id = %client_id,
                     message_id = %message.id,
@@ -589,12 +612,14 @@ impl WebSocketServerConnection {
                     message_type = "generic_message",
                     "Routing generic message"
                 );
-                
-                message_handler.handle_generic_message(
-                    client_id.to_string(),
-                    target_user_id.clone(),
-                    content.clone(),
-                ).await
+
+                message_handler
+                    .handle_generic_message(
+                        client_id.to_string(),
+                        target_user_id.clone(),
+                        content.clone(),
+                    )
+                    .await
             }
         };
 
@@ -622,20 +647,27 @@ impl WebSocketServerConnection {
     /// Send a message to the WebSocket client
     async fn send_message_to_client(
         &self,
-        ws_sender: &mut futures_util::stream::SplitSink<WebSocketStream<TcpStream>, tokio_tungstenite::tungstenite::Message>,
+        ws_sender: &mut futures_util::stream::SplitSink<
+            WebSocketStream<TcpStream>,
+            tokio_tungstenite::tungstenite::Message,
+        >,
         message: crate::models::message::Message,
     ) -> Result<(), crate::models::error::ConnectionError> {
         use futures_util::SinkExt;
         use tokio_tungstenite::tungstenite::Message as WsMessage;
 
         // Serialize message to JSON
-        let json_text = serde_json::to_string(&message)
-            .map_err(|e| crate::models::error::ConnectionError::InvalidMessage(
-                format!("Failed to serialize message: {}", e)
-            ))?;
+        let json_text = serde_json::to_string(&message).map_err(|e| {
+            crate::models::error::ConnectionError::InvalidMessage(format!(
+                "Failed to serialize message: {}",
+                e
+            ))
+        })?;
 
         // Send as WebSocket text message
-        ws_sender.send(WsMessage::Text(json_text)).await
+        ws_sender
+            .send(WsMessage::Text(json_text))
+            .await
             .map_err(|e| crate::models::error::ConnectionError::WebSocketError(e))?;
 
         Ok(())
@@ -644,7 +676,10 @@ impl WebSocketServerConnection {
     /// Send error response to client
     async fn send_error_response(
         &self,
-        ws_sender: &mut futures_util::stream::SplitSink<WebSocketStream<TcpStream>, tokio_tungstenite::tungstenite::Message>,
+        ws_sender: &mut futures_util::stream::SplitSink<
+            WebSocketStream<TcpStream>,
+            tokio_tungstenite::tungstenite::Message,
+        >,
         error: &crate::models::error::ConnectionError,
     ) -> Result<(), crate::models::error::ConnectionError> {
         use crate::models::message::{Message, MessageType};
@@ -655,7 +690,7 @@ impl WebSocketServerConnection {
             MessageType::TextChat {
                 target_user_id: None,
                 content: format!("Error: {}", error),
-            }
+            },
         );
 
         self.send_message_to_client(ws_sender, error_message).await

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
-use tokio::sync::mpsc::UnboundedSender;
 use std::collections::HashMap;
+use tokio::sync::mpsc::UnboundedSender;
 
 use super::message::{ClientId, Message};
 
@@ -22,7 +22,11 @@ impl Client {
         }
     }
 
-    pub fn new_with_username(id: ClientId, username: String, sender: UnboundedSender<Message>) -> Self {
+    pub fn new_with_username(
+        id: ClientId,
+        username: String,
+        sender: UnboundedSender<Message>,
+    ) -> Self {
         Self {
             id,
             username: Some(username),
@@ -45,8 +49,8 @@ pub type ClientRegistry = HashMap<ClientId, Client>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::mpsc;
     use crate::models::message::MessageType;
+    use tokio::sync::mpsc;
 
     #[test]
     fn test_client_creation() {
@@ -95,8 +99,7 @@ mod tests {
             target_user_id: Some("target".to_string()),
             content: "Test message".to_string(),
         };
-        let message = Message::new(Some("sender".to_string()), message_type);
-
+        let message = Message::new("sender".to_string(), message_type, None);
         // Test sending message through client's channel
         let send_result = client.sender.send(message.clone());
         assert!(send_result.is_ok());
@@ -145,7 +148,7 @@ mod tests {
             let handle = thread::spawn(move || {
                 let (sender, _receiver) = mpsc::unbounded_channel();
                 let client = Client::new(format!("client_{}", i), sender);
-                
+
                 // Write to registry
                 {
                     let mut reg = registry_clone.write().unwrap();
@@ -183,7 +186,7 @@ mod tests {
             target_user_id: None,
             content: "This should fail".to_string(),
         };
-        let message = Message::new(Some("sender".to_string()), message_type);
+        let message = Message::new(Some("sender".to_string()), message_type, None);
 
         // Sending should fail because receiver is dropped
         let send_result = client.sender.send(message);

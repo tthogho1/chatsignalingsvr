@@ -3,6 +3,23 @@ import init, { VideoChat } from './pkg/wasm_webrtc_client.js';
 
 let wasmVideoChat = null;
 
+function formatError(error) {
+  if (!error) {
+    return 'Unknown error';
+  }
+  if (error instanceof Error) {
+    return error.message || error.toString();
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch (_) {
+    return String(error);
+  }
+}
+
 // Initialize WASM module and setup
 async function initWasmVideoChat() {
   try {
@@ -18,11 +35,11 @@ async function initWasmVideoChat() {
     console.log('✅ UI setup complete');
   } catch (error) {
     console.error('❌ WASMモジュールの読み込みに失敗しました');
-    console.error('エラー:', error.message);
+    console.error('エラー:', formatError(error));
     console.error('HTTPサーバーから実行してください');
 
     // Show error message to user
-    showError(`WASM初期化エラー: ${error.message}`);
+    showError(`WASM初期化エラー: ${formatError(error)}`);
   }
 }
 
@@ -60,7 +77,7 @@ function setupUI() {
       showSuccess(`${username} として接続しました`);
     } catch (error) {
       console.error('❌ Connection failed:', error);
-      showError(`接続失敗: ${error.message}`);
+      showError(`接続失敗: ${formatError(error)}`);
     }
   });
 
@@ -79,7 +96,7 @@ function setupUI() {
       showSuccess('切断しました');
     } catch (error) {
       console.error('❌ Disconnect failed:', error);
-      showError(`切断失敗: ${error.message}`);
+      showError(`切断失敗: ${formatError(error)}`);
     }
   });
 
@@ -103,7 +120,7 @@ function setupUI() {
       showSuccess(`${targetUser} に通話を開始しました`);
     } catch (error) {
       console.error('❌ Call start failed:', error);
-      showError(`通話開始失敗: ${error.message}`);
+      showError(`通話開始失敗: ${formatError(error)}`);
     }
   });
 
@@ -118,7 +135,7 @@ function setupUI() {
       showSuccess('通話を終了しました');
     } catch (error) {
       console.error('❌ Call end failed:', error);
-      showError(`通話終了失敗: ${error.message}`);
+      showError(`通話終了失敗: ${formatError(error)}`);
     }
   });
 
@@ -131,7 +148,7 @@ function setupUI() {
       toggleCameraBtn.classList.toggle('btn-danger', !isOn);
     } catch (error) {
       console.error('❌ Camera toggle failed:', error);
-      showError(`カメラ切り替え失敗: ${error.message}`);
+      showError(`カメラ切り替え失敗: ${formatError(error)}`);
     }
   });
 
@@ -144,7 +161,7 @@ function setupUI() {
       toggleMicBtn.classList.toggle('btn-danger', !isOn);
     } catch (error) {
       console.error('❌ Microphone toggle failed:', error);
-      showError(`マイク切り替え失敗: ${error.message}`);
+      showError(`マイク切り替え失敗: ${formatError(error)}`);
     }
   });
 }

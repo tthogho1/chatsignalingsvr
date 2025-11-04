@@ -1,10 +1,10 @@
-use std::io::{self, Write};
-use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
-use websocket_chat_signaling_server::models::message::{Message as ChatMessage, MessageType};
-use tracing::{info, error, debug};
-use serde_json;
 use clap::{Arg, Command};
+use futures_util::{SinkExt, StreamExt};
+use serde_json;
+use std::io::{self, Write};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tracing::{debug, error, info};
+use websocket_chat_signaling_server::models::message::{Message as ChatMessage, MessageType};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .long("server")
                 .value_name("URL")
                 .help("WebSocket server URL")
-                .default_value("ws://127.0.0.1:8080")
+                .default_value("ws://127.0.0.1:8080"),
         )
         .arg(
             Arg::new("username")
@@ -30,12 +30,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .long("username")
                 .value_name("NAME")
                 .help("Username for chat")
-                .required(false)
+                .required(false),
         )
         .get_matches();
 
     let server_url = matches.get_one::<String>("server").unwrap();
-    let username = matches.get_one::<String>("username")
+    let username = matches
+        .get_one::<String>("username")
         .map(|s| s.clone())
         .unwrap_or_else(|| format!("user_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()));
 
@@ -51,31 +52,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let read_handle = tokio::spawn(async move {
         while let Some(msg) = read.next().await {
             match msg {
-                Ok(Message::Text(text)) => {
-                    match serde_json::from_str::<ChatMessage>(&text) {
-                        Ok(chat_msg) => {
-                            match &chat_msg.message_type {
-                                MessageType::TextChat { target_user_id: _, content } => {
-                                    if let Some(sender) = &chat_msg.sender_id {
-                                        println!("[{}]: {}", sender, content);
-                                    } else {
-                                        println!("[System]: {}", content);
-                                    }
-                                }
-                                MessageType::WebRTCSignaling { target_user_id, signaling_data } => {
-                                    println!("[SIGNALING to {}]: {:?}", target_user_id, signaling_data);
-                                }
-                                MessageType::GenericMessage { target_user_id, content } => {
-                                    println!("[GENERIC to {}]: {}", target_user_id, content);
-                                }
+                Ok(Message::Text(text)) => match serde_json::from_str::<ChatMessage>(&text) {
+                    Ok(chat_msg) => match &chat_msg.message_type {
+                        MessageType::TextChat {
+                            target_user_id: _,
+                            content,
+                        } => {
+                            if let Some(sender) = &chat_msg.sender_id {
+                                println!("[{}]: {}", sender, content);
+                            } else {
+                                println!("[System]: {}", content);
                             }
                         }
-                        Err(e) => {
-                            error!("Failed to parse message: {}", e);
-                            println!("Raw message: {}", text);
+                        MessageType::WebRTCSignaling {
+                            target_user_id,
+                            signaling_data,
+                        } => {
+                            println!("[SIGNALING to {}]: {:?}", target_user_id, signaling_data);
                         }
+                        MessageType::GenericMessage {
+                            target_user_id,
+                            content,
+                        } => {
+                            println!("[GENERIC to {}]: {}", target_user_id, content);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Failed to parse message: {}", e);
+                        println!("Raw message: {}", text);
                     }
-                }
+                },
                 Ok(Message::Close(_)) => {
                     info!("Server closed connection");
                     break;
@@ -110,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match io::stdin().read_line(&mut input) {
             Ok(_) => {
                 let input = input.trim();
-                
+
                 if input.is_empty() {
                     continue;
                 }
@@ -137,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         MessageType::TextChat {
                             target_user_id: None,
                             content: content.to_string(),
-                        }
+                        },
                     )
                 } else if input.starts_with("/direct ") {
                     let parts: Vec<&str> = input[8..].splitn(2, ' ').collect();
@@ -147,7 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             MessageType::TextChat {
                                 target_user_id: Some(parts[0].to_string()),
                                 content: parts[1].to_string(),
-                            }
+                            },
                         )
                     } else {
                         println!("Usage: /direct <user> <message>");
@@ -167,13 +173,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 })
                             }
                         };
-                        
+
                         ChatMessage::new_simple(
                             Some(username.clone()),
                             MessageType::WebRTCSignaling {
                                 target_user_id: target_user,
                                 signaling_data,
-                            }
+                            },
                         )
                     } else {
                         println!("Usage: /signal <user> <json_data>");
@@ -186,7 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         MessageType::TextChat {
                             target_user_id: None,
                             content: input.to_string(),
-                        }
+                        },
                     )
                 };
 

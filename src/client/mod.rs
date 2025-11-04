@@ -1,16 +1,13 @@
-use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::Message,
-    MaybeTlsStream,
-    WebSocketStream as TokioWebSocketStream,
-};
-use tokio::net::TcpStream;
 use crate::models::message::{Message as ChatMessage, MessageType};
-use tracing::{info, error, debug};
+use futures_util::{SinkExt, StreamExt};
 use serde_json;
 use std::error::Error;
+use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+use tokio_tungstenite::{
+    connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream as TokioWebSocketStream,
+};
+use tracing::{debug, error, info};
 
 type Socket = TokioWebSocketStream<MaybeTlsStream<TcpStream>>;
 pub type WebSocketSink = futures_util::stream::SplitSink<Socket, Message>;
@@ -25,9 +22,12 @@ pub struct ChatClient {
 
 impl ChatClient {
     /// Connect to the WebSocket server
-    pub async fn connect(server_url: &str, username: String) -> Result<(Self, mpsc::UnboundedReceiver<ChatMessage>), Box<dyn Error>> {
+    pub async fn connect(
+        server_url: &str,
+        username: String,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<ChatMessage>), Box<dyn Error>> {
         info!("Connecting to {} as {}", server_url, username);
-        
+
         let (ws_stream, _response) = connect_async(server_url).await?;
         info!("Connected to WebSocket server");
 
@@ -56,20 +56,18 @@ impl ChatClient {
     ) {
         while let Some(msg) = read.next().await {
             match msg {
-                Ok(Message::Text(text)) => {
-                    match serde_json::from_str::<ChatMessage>(&text) {
-                        Ok(chat_msg) => {
-                            if let Err(e) = message_sender.send(chat_msg) {
-                                error!("Failed to forward message: {}", e);
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to parse message: {}", e);
-                            debug!("Raw message: {}", text);
+                Ok(Message::Text(text)) => match serde_json::from_str::<ChatMessage>(&text) {
+                    Ok(chat_msg) => {
+                        if let Err(e) = message_sender.send(chat_msg) {
+                            error!("Failed to forward message: {}", e);
+                            break;
                         }
                     }
-                }
+                    Err(e) => {
+                        error!("Failed to parse message: {}", e);
+                        debug!("Raw message: {}", text);
+                    }
+                },
                 Ok(Message::Close(_)) => {
                     info!("Server closed connection");
                     break;
@@ -92,47 +90,55 @@ impl ChatClient {
             MessageType::TextChat {
                 target_user_id: None,
                 content: content.to_string(),
-            }
+            },
         );
         self.send_message(message).await
     }
 
     /// Send a direct text message to a specific user
-    pub async fn send_direct_message(&mut self, target_user_id: &str, content: &str) -> Result<(), Box<dyn Error>> {
+    pub async fn send_direct_message(
+        &mut self,
+        target_user_id: &str,
+        content: &str,
+    ) -> Result<(), Box<dyn Error>> {
         let message = ChatMessage::new_simple(
             Some(self.username.clone()),
             MessageType::TextChat {
                 target_user_id: Some(target_user_id.to_string()),
                 content: content.to_string(),
-            }
+            },
         );
         self.send_message(message).await
     }
 
     /// Send WebRTC signaling data
     pub async fn send_signaling(
-        &mut self, 
-        target_user_id: &str, 
-        signaling_data: serde_json::Value
+        &mut self,
+        target_user_id: &str,
+        signaling_data: serde_json::Value,
     ) -> Result<(), Box<dyn Error>> {
         let message = ChatMessage::new_simple(
             Some(self.username.clone()),
             MessageType::WebRTCSignaling {
                 target_user_id: target_user_id.to_string(),
                 signaling_data,
-            }
+            },
         );
         self.send_message(message).await
     }
 
     /// Send a generic message to a specific user (arbitrary content as string)
-    pub async fn send_generic_message(&mut self, target_user_id: &str, content: &str) -> Result<(), Box<dyn Error>> {
+    pub async fn send_generic_message(
+        &mut self,
+        target_user_id: &str,
+        content: &str,
+    ) -> Result<(), Box<dyn Error>> {
         let message = ChatMessage::new_simple(
             Some(self.username.clone()),
             MessageType::GenericMessage {
                 target_user_id: target_user_id.to_string(),
                 content: content.to_string(),
-            }
+            },
         );
         self.send_message(message).await
     }

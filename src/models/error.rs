@@ -32,8 +32,8 @@ pub enum ConnectionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io;
     use std::error::Error;
+    use std::io;
 
     #[test]
     fn test_server_error_display() {
@@ -94,7 +94,7 @@ mod tests {
         // Test error conversion chain: io::Error -> ServerError
         let io_error = io::Error::new(io::ErrorKind::PermissionDenied, "Permission denied");
         let server_error: ServerError = io_error.into();
-        
+
         match server_error {
             ServerError::BindError(_) => {
                 let error_string = format!("{}", server_error);
@@ -110,16 +110,14 @@ mod tests {
         // Test error conversion chain: ConnectionError -> ServerError
         let connection_error = ConnectionError::InvalidMessage("Bad format".to_string());
         let server_error: ServerError = connection_error.into();
-        
+
         match server_error {
-            ServerError::ConnectionError(inner) => {
-                match inner {
-                    ConnectionError::InvalidMessage(msg) => {
-                        assert_eq!(msg, "Bad format");
-                    }
-                    _ => panic!("Expected InvalidMessage variant"),
+            ServerError::ConnectionError(inner) => match inner {
+                ConnectionError::InvalidMessage(msg) => {
+                    assert_eq!(msg, "Bad format");
                 }
-            }
+                _ => panic!("Expected InvalidMessage variant"),
+            },
             _ => panic!("Expected ConnectionError variant"),
         }
     }
@@ -128,7 +126,7 @@ mod tests {
     fn test_error_source_chain() {
         let io_error = io::Error::new(io::ErrorKind::ConnectionRefused, "Connection refused");
         let server_error = ServerError::BindError(io_error);
-        
+
         // Test that the error source chain is preserved
         assert!(server_error.source().is_some());
         let source = server_error.source().unwrap();

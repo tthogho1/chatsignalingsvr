@@ -19,7 +19,7 @@
         log('🔄 Testing WASM module access...');
 
         // Test if we can access the JS file
-        const response = await fetch('./pkg/wasm_webrtc_client.js');
+        const response = await fetch('./pkg-dev/wasm_webrtc_client.js');
         log(`📁 JS file status: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
